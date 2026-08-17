@@ -1,0 +1,43 @@
+[build]
+  command = "npm run build"
+  publish = "public"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/api/health"
+  to = "/.netlify/functions/health"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/research"
+  to = "/.netlify/functions/research"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/jobs/*"
+  to = "/.netlify/functions/job?id=:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/relay/status"
+  to = "/.netlify/functions/relay-status"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/relay/poll"
+  to = "/.netlify/functions/relay-poll"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/relay/result"
+  to = "/.netlify/functions/relay-result"
+  status = 200
+  force = true

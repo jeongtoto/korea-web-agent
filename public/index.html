@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="description" content="한국 쇼핑·생활 웹 정보를 근거와 함께 조사하는 개인 리서치 에이전트" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="stylesheet" href="/styles.css" />
+  <title>Korea Web Agent</title>
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">PRIVATE RESEARCH WORKSPACE</p>
+        <h1>Korea Web Agent</h1>
+        <p class="lede">상품 링크 하나로 가격·스펙·리뷰·커뮤니티·공식 근거를 모아 구매 판단까지 정리합니다.</p>
+      </div>
+      <div class="status-stack"><div class="status-dot" id="serviceStatus" aria-label="서비스 상태">API 확인 중</div><div class="status-dot" id="relayStatus" aria-label="PC 릴레이 상태">PC RELAY 확인 중</div></div>
+    </header>
+
+    <section class="panel input-panel">
+      <form id="researchForm">
+        <label>
+          <span>상품 또는 페이지 URL</span>
+          <input id="url" name="url" type="url" inputmode="url" placeholder="https://brand.naver.com/..." autocomplete="url" />
+        </label>
+        <label>
+          <span>무엇을 알고 싶나요?</span>
+          <textarea id="question" name="question" rows="3" required placeholder="이 침대 어때? 지금 가격이면 살만한지까지 봐줘."></textarea>
+        </label>
+        <div class="form-row">
+          <label class="check">
+            <input id="localRelay" type="checkbox" />
+            <span>내 PC 로그인 세션의 개인화 가격/배송도 확인</span>
+          </label>
+          <button id="submitButton" type="submit">조사 시작</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="progress" class="panel progress hidden" aria-live="polite"></section>
+    <section id="report" class="report hidden" aria-live="polite"></section>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>

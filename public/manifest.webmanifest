@@ -1,0 +1,10 @@
+{
+  "name": "Korea Web Agent",
+  "short_name": "KWA",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f9",
+  "theme_color": "#0b1220",
+  "description": "근거 기반 한국 쇼핑·생활 리서치 에이전트",
+  "icons": []
+}
