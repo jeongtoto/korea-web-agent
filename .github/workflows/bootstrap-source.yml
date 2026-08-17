@@ -1,0 +1,63 @@
+name: Bootstrap source
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/bootstrap-source.yml
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Reassemble verified source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .bootstrap/source.b64.part* | base64 --decode > /tmp/korea-web-agent-source.tgz
+          echo 'e98931fcfe8ed7e976bcbcbc7582d60cb6aa98c62abf8b9b8a2dda06f96bd2a6  /tmp/korea-web-agent-source.tgz' | sha256sum --check --strict
+          tar -tzf /tmp/korea-web-agent-source.tgz >/dev/null
+          tar -xzf /tmp/korea-web-agent-source.tgz -C .
+
+      - name: Remove one-time bootstrap files
+        shell: bash
+        run: |
+          rm -rf .bootstrap
+          rm -f .github/workflows/bootstrap-source.yml
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+
+      - name: Install dependencies
+        run: npm install --package-lock=false
+
+      - name: Run test suite
+        run: npm test
+
+      - name: Run typecheck
+        run: npm run typecheck
+
+      - name: Build production output
+        run: npm run build
+
+      - name: Commit verified source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: import Korea Web Agent v0.2.0 source'
+          git push origin HEAD:main
