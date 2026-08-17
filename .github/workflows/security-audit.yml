@@ -1,6 +1,6 @@
 name: Production dependency audit
 
-# audit-attempt: 2
+# audit-attempt: 3
 on:
   push:
     branches: [main]
@@ -15,7 +15,7 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,11 +23,17 @@ jobs:
           node-version: '22'
       - name: Generate deterministic dependency lock
         run: npm install --package-lock-only
-      - name: Install production dependency graph from lock
-        run: npm ci --omit=dev
+      - name: Install full dependency graph from lock
+        run: npm ci
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
-      - name: Commit dependency lock after successful audit
+      - name: Run test suite
+        run: npm test
+      - name: Run typecheck
+        run: npm run typecheck
+      - name: Build production output
+        run: npm run build
+      - name: Commit dependency lock after successful verification
         shell: bash
         run: |
           set -euo pipefail
