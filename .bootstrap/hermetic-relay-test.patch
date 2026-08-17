@@ -1,0 +1,12 @@
+diff --git a/tests/server.test.ts b/tests/server.test.ts
+index 994af96..82ed7d1 100644
+--- a/tests/server.test.ts
++++ b/tests/server.test.ts
+@@ -145,6 +145,7 @@ test('default research runner can merge an online outbound broker result', async
+         evidence: [],
+       }),
+       publicSearch: async () => [],
++      academicSearch: async () => [],
+       now: () => new Date(),
+       idFactory: () => 'job-with-broker',
+     },
