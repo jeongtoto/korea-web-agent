@@ -164,6 +164,8 @@ Set one secret environment variable in Netlify:
 KWA_RELAY_SECRET=<cryptographically-random-secret>
 ```
 
+After adding or changing `KWA_RELAY_SECRET`, trigger a fresh production deploy so the Netlify Functions receive the updated secret.
+
 The same secret is entered locally on the PC connector. Raw cookies, passwords, localStorage and browser-profile files never enter Netlify.
 
 Build command: `npm run build`  \
