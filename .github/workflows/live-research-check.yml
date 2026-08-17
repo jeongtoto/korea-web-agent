@@ -23,7 +23,8 @@ jobs:
             -d '{"url":"https://brand.naver.com/mildo/products/7322162980","question":"이 침대 어때? 지금 가격이면 살만한지까지 봐줘.","includeLocalRelay":false,"category":"auto"}' \
             https://korea-web-agent.netlify.app/api/research)"
           echo "HTTP $status"
-          jq '{id,status,createdAt,updatedAt,result_status:(.result.status // null),decision:(.result.report.decision // null),evidence_count:(.result.evidence | length // 0),errors:(.result.errors // [])}' /tmp/research.json
+          jq '{id,status,createdAt,updatedAt,decision:(.report.decision // null),evidence_count:(.evidence | length),source_count:(.sourceResults | length),errors}' /tmp/research.json
           test "$status" = '201'
           jq -e '.status == "completed" or .status == "partial"' /tmp/research.json >/dev/null
-          jq -e '.result.report.decision == "BUY" or .result.report.decision == "WAIT" or .result.report.decision == "SKIP" or .result.report.decision == "INSUFFICIENT"' /tmp/research.json >/dev/null
+          jq -e '.report.decision == "BUY" or .report.decision == "WAIT" or .report.decision == "SKIP" or .report.decision == "INSUFFICIENT"' /tmp/research.json >/dev/null
+          jq -e '(.sourceResults | length) > 0' /tmp/research.json >/dev/null
