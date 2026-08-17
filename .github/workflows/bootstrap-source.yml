@@ -1,6 +1,6 @@
 name: Bootstrap source
 
-# bootstrap-attempt: 2
+# bootstrap-attempt: 3
 on:
   push:
     branches:
@@ -32,6 +32,8 @@ jobs:
           echo 'e98931fcfe8ed7e976bcbcbc7582d60cb6aa98c62abf8b9b8a2dda06f96bd2a6  /tmp/korea-web-agent-source.tgz' | sha256sum --check --strict
           tar -tzf /tmp/korea-web-agent-source.tgz >/dev/null
           tar -xzf /tmp/korea-web-agent-source.tgz -C .
+          git apply --check .bootstrap/hermetic-relay-test.patch
+          git apply .bootstrap/hermetic-relay-test.patch
 
       - name: Remove one-time bootstrap files
         shell: bash
