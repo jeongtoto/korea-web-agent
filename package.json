@@ -19,6 +19,6 @@
     "typescript": "5.8.3"
   },
   "dependencies": {
-    "@netlify/blobs": "10.7.10"
+    "@netlify/blobs": "10.7.13"
   }
 }
