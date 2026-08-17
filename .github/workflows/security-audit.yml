@@ -1,0 +1,26 @@
+name: Production dependency audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - package.json
+      - .github/workflows/security-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install production dependency graph
+        run: npm install --omit=dev --package-lock=false
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
