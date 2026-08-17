@@ -1,0 +1,59 @@
+name: Production smoke
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wait for Netlify production health
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://korea-web-agent.netlify.app/api/health'
+          for attempt in $(seq 1 30); do
+            body="$(curl --fail --silent --show-error --max-time 15 "$url" || true)"
+            if echo "$body" | jq -e '.ok == true and .service == "korea-web-agent" and .runtime == "netlify"' >/dev/null 2>&1; then
+              echo "$body"
+              exit 0
+            fi
+            echo "Waiting for production deploy ($attempt/30)..."
+            sleep 4
+          done
+          echo 'Netlify health endpoint did not become ready in time.' >&2
+          exit 1
+
+      - name: Verify PWA shell
+        shell: bash
+        run: |
+          set -euo pipefail
+          html="$(curl --fail --silent --show-error --max-time 15 https://korea-web-agent.netlify.app/)"
+          grep -F '<title>Korea Web Agent</title>' <<<"$html"
+          grep -F '내 PC 로그인 세션의 개인화 가격/배송도 확인' <<<"$html"
+
+      - name: Verify relay status endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          body="$(curl --fail --silent --show-error --max-time 15 https://korea-web-agent.netlify.app/api/relay/status)"
+          echo "$body"
+          echo "$body" | jq -e 'has("enabled") and has("online") and has("lastSeenAt")' >/dev/null
+
+      - name: Verify research route validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error --output /tmp/research.json --write-out '%{http_code}' --max-time 15 \
+            -H 'content-type: application/json' \
+            -d '{}' \
+            https://korea-web-agent.netlify.app/api/research)"
+          cat /tmp/research.json
+          test "$status" = '400'
+          jq -e 'has("error")' /tmp/research.json >/dev/null
