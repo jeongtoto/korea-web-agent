@@ -1,0 +1,23 @@
+name: Relay enabled check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/relay-enabled-check.yml
+
+permissions:
+  contents: read
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Verify production relay enabled
+        shell: bash
+        run: |
+          set -euo pipefail
+          body="$(curl --fail --silent --show-error --max-time 20 https://korea-web-agent.netlify.app/api/relay/status)"
+          echo "$body"
+          echo "$body" | jq -e '.enabled == true and has("online") and has("lastSeenAt")' >/dev/null
