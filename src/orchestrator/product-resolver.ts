@@ -106,6 +106,16 @@ function candidateKey(target: NormalizedTarget): string {
     .join('|') || target.name?.toLowerCase() || target.canonicalUrl || crypto.randomUUID();
 }
 
+function urlAuthority(target: NormalizedTarget): number {
+  const host = (target.sourceHost ?? '').toLowerCase();
+  if (['brand.naver.com', 'smartstore.naver.com', 'm.smartstore.naver.com', 'product.shoppinglive.naver.com'].includes(host)) return 1;
+  if (host === 'coupang.com' || host.endsWith('.coupang.com')) return 0.95;
+  if (host === 'danawa.com' || host.endsWith('.danawa.com')) return 0.85;
+  if (host === 'blog.naver.com' || host === 'cafe.naver.com') return 0.25;
+  if (host.includes('youtube.com') || host.includes('youtu.be')) return 0.2;
+  return 0.5;
+}
+
 function groupCandidates(seed: NormalizedTarget, query: string, hits: SearchHit[]): ProductCandidate[] {
   const grouped = new Map<string, { candidate: ProductCandidate; count: number }>();
 
@@ -120,6 +130,10 @@ function groupCandidates(seed: NormalizedTarget, query: string, hits: SearchHit[
       existing.count += 1;
       existing.candidate.score = Math.min(1, Math.max(existing.candidate.score, baseScore) + 0.12);
       if (!existing.candidate.sourceUrls.includes(hit.url)) existing.candidate.sourceUrls.push(hit.url);
+      if (urlAuthority(target) > urlAuthority(existing.candidate.target)) {
+        existing.candidate.target = target;
+        existing.candidate.title = hit.title;
+      }
     } else {
       grouped.set(key, {
         count: 1,
@@ -135,7 +149,12 @@ function groupCandidates(seed: NormalizedTarget, query: string, hits: SearchHit[
 
   return [...grouped.values()]
     .map(({ candidate, count }) => ({ ...candidate, score: Math.min(1, candidate.score + Math.min(0.08, Math.max(0, count - 1) * 0.04)) }))
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => {
+      const scoreDifference = b.score - a.score;
+      if (Math.abs(scoreDifference) > 0.05) return scoreDifference;
+      const authorityDifference = urlAuthority(b.target) - urlAuthority(a.target);
+      return authorityDifference || scoreDifference;
+    });
 }
 
 async function enrichParsedProduct(
