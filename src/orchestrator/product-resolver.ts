@@ -72,6 +72,7 @@ function inferCandidateTarget(hit: SearchHit, seed: NormalizedTarget): Normalize
   const inferredBrand = extractBrand(hit.title);
   const inferredModel = extractModel(hit.title);
   const inferredVariant = extractVariant(hit.title) ?? seed.variant;
+  const hitText = `${hit.title} ${hit.snippet} ${hit.url}`;
 
   if (seed.brand && hit.title.toLowerCase().includes(seed.brand.toLowerCase())) target.brand = seed.brand;
   else if (inferredBrand) target.brand = inferredBrand;
@@ -87,6 +88,7 @@ function inferCandidateTarget(hit: SearchHit, seed: NormalizedTarget): Normalize
     // Search provider already validates URLs; leave optional URL fields absent if malformed.
   }
   if (parsed?.productId) target.productId = parsed.productId;
+  else if (seed.productId && hitText.includes(seed.productId)) target.productId = seed.productId;
   return target;
 }
 
@@ -98,6 +100,7 @@ function lexicalScore(query: string, hit: SearchHit): number {
 }
 
 function candidateKey(target: NormalizedTarget): string {
+  if (target.productId) return `id:${target.productId}`;
   return [target.brand, target.model, target.variant]
     .map((value) => value?.toLowerCase().trim() ?? '')
     .join('|') || target.name?.toLowerCase() || target.canonicalUrl || crypto.randomUUID();
@@ -135,21 +138,65 @@ function groupCandidates(seed: NormalizedTarget, query: string, hits: SearchHit[
     .sort((a, b) => b.score - a.score);
 }
 
+async function enrichParsedProduct(
+  parsed: NormalizedTarget,
+  request: ResearchRequest,
+  deps: ProductResolverDependencies,
+): Promise<ProductResolution> {
+  const cleanedQuestion = cleanQuestion(request.question);
+  const query = [parsed.brand, parsed.productId, cleanedQuestion].filter(Boolean).join(' ').trim();
+  const baseConfidence = parsed.productId ? 0.8 : 0.7;
+  if (!query) {
+    return {
+      target: parsed,
+      confidence: baseConfidence,
+      ambiguous: false,
+      candidates: [{ target: parsed, score: baseConfidence, sourceUrls: request.url ? [request.url] : [], title: parsed.productId ?? 'product' }],
+      identityEvidence: request.url ? [{ title: parsed.productId ?? 'product', url: request.url, score: baseConfidence }] : [],
+    };
+  }
+
+  let hits: SearchHit[] = [];
+  try { hits = await deps.publicSearch(query); } catch { /* Parsed product ID remains usable if discovery is unavailable. */ }
+  const candidates = groupCandidates(parsed, query, hits.slice(0, 12));
+  const matching = candidates.find((candidate) =>
+    !parsed.productId || candidate.target.productId === parsed.productId || candidate.sourceUrls.some((url) => url.includes(parsed.productId!)));
+
+  if (!matching) {
+    return {
+      target: parsed,
+      confidence: baseConfidence,
+      ambiguous: false,
+      candidates: [{ target: parsed, score: baseConfidence, sourceUrls: request.url ? [request.url] : [], title: parsed.productId ?? 'product' }],
+      identityEvidence: hits.slice(0, 5).map((hit) => ({ title: hit.title, url: hit.url, score: 0.4 })),
+    };
+  }
+
+  const target: NormalizedTarget = {
+    ...matching.target,
+    kind: 'product',
+    ...(parsed.brand && !matching.target.brand ? { brand: parsed.brand } : {}),
+    ...(parsed.productId ? { productId: parsed.productId } : {}),
+    ...(parsed.sourceHost ? { sourceHost: parsed.sourceHost } : {}),
+    ...(parsed.canonicalUrl ? { canonicalUrl: parsed.canonicalUrl } : {}),
+  };
+  const confidence = Math.max(baseConfidence, Math.min(0.97, matching.score));
+  return {
+    target,
+    confidence,
+    ambiguous: false,
+    candidates,
+    identityEvidence: matching.sourceUrls.map((url) => ({ title: matching.title, url, score: matching.score })),
+  };
+}
+
 export async function resolveProduct(
   request: ResearchRequest,
   deps: ProductResolverDependencies,
 ): Promise<ProductResolution> {
   if (request.url) {
     const parsed = parseNaverProductUrl(request.url);
-    if (parsed) {
-      return {
-        target: parsed,
-        confidence: parsed.productId ? 0.9 : 0.75,
-        ambiguous: false,
-        candidates: [{ target: parsed, score: parsed.productId ? 0.9 : 0.75, sourceUrls: [request.url], title: parsed.name ?? parsed.productId ?? 'product' }],
-        identityEvidence: [{ title: parsed.name ?? parsed.productId ?? 'product', url: request.url, score: parsed.productId ? 0.9 : 0.75 }],
-      };
-    }
+    if (parsed) return enrichParsedProduct(parsed, request, deps);
   }
 
   const query = cleanQuestion(request.question);
