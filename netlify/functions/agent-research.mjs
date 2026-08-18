@@ -2,11 +2,16 @@ import { runAgentResearch, validateAgentResearchInput } from '../../dist/src/age
 import { runResearch, createDefaultResearchDependencies } from '../../dist/src/orchestrator/research.js';
 import { runCloudResearch } from '../../dist/src/cloud/research-service.js';
 import { searchDuckDuckGo } from '../../dist/src/providers/duckduckgo.js';
+import { actionAuthConfigured, actionAuthorized } from './_lib/auth.mjs';
 import { getKoreaWebAgentStore } from './_lib/store.mjs';
 import { json, readJson } from './_lib/http.mjs';
 
 export default async (request) => {
   if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
+
+  const actionKey = process.env.KWA_ACTION_API_KEY || '';
+  if (!actionAuthConfigured(actionKey)) return json({ error: 'Action API authentication is not configured' }, 503);
+  if (!actionAuthorized(request, actionKey)) return json({ error: 'unauthorized' }, 401);
 
   let input;
   try {
