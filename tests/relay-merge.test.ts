@@ -58,6 +58,29 @@ test('relay title can improve identity without fabricating personalized price co
   assert.equal(merged.report?.personalizedPrice?.salePrice, undefined);
 });
 
+test('an inconsistent relay title does not overwrite an already resolved product identity', () => {
+  const job = baseJob();
+  job.target = {
+    ...job.target,
+    brand: '와이드뷰',
+    name: '와이드뷰 43인치 4K V3 스탠드',
+    model: 'V3',
+    variant: '43인치',
+  };
+  job.researchContext = {
+    identityConfidence: 0.94,
+    resolvedTarget: { ...job.target },
+  };
+
+  const merged = applyPersonalizedRelayResult(job, {
+    title: '네이버 로그인',
+    price: 439000,
+  }, '2026-08-17T00:00:10.000Z');
+
+  assert.equal(merged.target.name, '와이드뷰 43인치 4K V3 스탠드');
+  assert.match(merged.relay.message ?? '', /title|identity|상품명|제품/i);
+});
+
 test('applyPersonalizedRelayResult rejects secret-bearing connector payloads', () => {
   assert.throws(() => applyPersonalizedRelayResult(baseJob(), {
     membershipPrice: 419000,
