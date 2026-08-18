@@ -1,5 +1,6 @@
 import { normalizeEvidence } from '../core/evidence.ts';
 import { matchEvidenceToProduct } from '../core/product-match.ts';
+import { deriveExplicitSearchSignals } from '../core/search-signals.ts';
 import type {
   EvidenceItem,
   NormalizedTarget,
@@ -108,18 +109,22 @@ function searchHitEvidence(
     const confidence = match.level === 'exact_product'
       ? 0.45 + (0.2 * match.score)
       : 0.28 + (0.18 * match.score);
+    const evidenceClass = source?.evidenceClass ?? classifySearchHit(hit);
+    const signals = match.level === 'exact_product'
+      ? deriveExplicitSearchSignals(hit, evidenceClass, target)
+      : {};
     return {
       claim: [hit.title, hit.snippet].filter(Boolean).join(' — '),
       sourceUrl: hit.url,
       sourceType: source?.sourceType ?? 'search_result',
       retrievedAt,
       acquisitionMethod: 'search_metadata',
-      evidenceClass: source?.evidenceClass ?? classifySearchHit(hit),
+      evidenceClass,
       independenceKey: `search:${hit.url}`,
       confidence,
       specificity,
-      notes: `Identity match: ${match.level} (${match.score.toFixed(2)}). Search metadata is weaker than direct retrieval.`,
-      data: { identityMatch: match.level, identityMatchScore: match.score },
+      notes: `Identity match: ${match.level} (${match.score.toFixed(2)}). Search metadata is weaker than direct retrieval; sentiment/price signals are recorded only when explicit wording is present.`,
+      data: { identityMatch: match.level, identityMatchScore: match.score, ...signals },
     };
   }
 
