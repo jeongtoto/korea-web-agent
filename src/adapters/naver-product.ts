@@ -4,6 +4,7 @@ const NAVER_PRODUCT_HOSTS = new Set([
   'brand.naver.com',
   'smartstore.naver.com',
   'm.smartstore.naver.com',
+  'product.shoppinglive.naver.com',
 ]);
 
 export function parseNaverProductUrl(input: string): NormalizedTarget | null {
@@ -19,19 +20,29 @@ export function parseNaverProductUrl(input: string): NormalizedTarget | null {
 
   const segments = url.pathname.split('/').filter(Boolean);
   const productsIndex = segments.indexOf('products');
-  if (productsIndex < 1 || productsIndex + 1 >= segments.length) return null;
+  if (productsIndex < 0 || productsIndex + 1 >= segments.length) return null;
 
-  const brand = segments[productsIndex - 1];
   const productId = segments[productsIndex + 1];
-  if (!brand || !productId || !/^\d+$/.test(productId)) return null;
+  if (!productId || !/^\d+$/.test(productId)) return null;
 
-  const canonicalUrl = `${url.protocol}//${host}/${encodeURIComponent(brand)}/products/${productId}`;
+  if (host === 'product.shoppinglive.naver.com') {
+    return {
+      kind: 'product',
+      productId,
+      sourceHost: host,
+      canonicalUrl: `${url.protocol}//${host}/products/${productId}`,
+    };
+  }
+
+  if (productsIndex < 1) return null;
+  const brand = segments[productsIndex - 1];
+  if (!brand) return null;
 
   return {
     kind: 'product',
     brand: decodeURIComponent(brand),
     productId,
     sourceHost: host,
-    canonicalUrl,
+    canonicalUrl: `${url.protocol}//${host}/${encodeURIComponent(brand)}/products/${productId}`,
   };
 }

@@ -30,6 +30,15 @@ export const REPORT_DECISIONS = ['BUY', 'WAIT', 'SKIP', 'INSUFFICIENT'] as const
 export type ReportDecision = (typeof REPORT_DECISIONS)[number];
 
 export type ProductSpecificity = 'exact_product' | 'category' | 'general_mechanism';
+export type ProductMatchLevel = 'exact_product' | 'probable_product' | 'category' | 'general_mechanism' | 'unrelated';
+
+export interface ResearchIntent {
+  productResearch: boolean;
+  purchaseDecision: boolean;
+  priceSensitive: boolean;
+  personalizedPriceUseful: boolean;
+  specOnly: boolean;
+}
 
 export interface EvidenceItem {
   claim: string;
@@ -56,6 +65,35 @@ export interface NormalizedTarget {
   productId?: string;
   sourceHost?: string;
   canonicalUrl?: string;
+}
+
+export interface ProductMatchResult {
+  level: ProductMatchLevel;
+  score: number;
+  matchedTokens: string[];
+  missingTokens: string[];
+}
+
+export interface ProductCandidate {
+  target: NormalizedTarget;
+  score: number;
+  sourceUrls: string[];
+  title: string;
+}
+
+export interface ProductResolution {
+  target: NormalizedTarget;
+  confidence: number;
+  ambiguous: boolean;
+  candidates: ProductCandidate[];
+  identityEvidence: Array<{ title: string; url: string; score: number }>;
+}
+
+export interface ResearchContext {
+  intent?: ResearchIntent;
+  identityConfidence?: number;
+  resolvedTarget?: NormalizedTarget;
+  resolutionAmbiguous?: boolean;
 }
 
 export interface ResearchRequest {
@@ -91,12 +129,24 @@ export interface PriceSnapshot {
   estimatedPoints?: number;
   shippingFee?: number;
   shippingEta?: string;
+  selectedOption?: string;
+  availability?: string;
   sourceUrl?: string;
+}
+
+export interface ProductConfidenceDimensions {
+  identity: number;
+  price: number;
+  officialSpecs: number;
+  reviews: number;
+  negativeSignals: number;
+  personalizedPrice: number;
 }
 
 export interface ProductReport {
   decision: ReportDecision;
   confidence: number;
+  confidenceDimensions: ProductConfidenceDimensions;
   title: string;
   summary: string;
   reasons: string[];
@@ -119,6 +169,7 @@ export interface ResearchJob {
   updatedAt: string;
   completedAt?: string;
   target: NormalizedTarget;
+  researchContext?: ResearchContext;
   sourceResults: ResearchSourceResult[];
   evidence: EvidenceItem[];
   relay: RelayStatus;

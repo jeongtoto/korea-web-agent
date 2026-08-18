@@ -1,8 +1,11 @@
 import { normalizeEvidence } from '../core/evidence.ts';
+import { matchEvidenceToProduct } from '../core/product-match.ts';
+import { deriveExplicitSearchSignals } from '../core/search-signals.ts';
 import type {
   EvidenceItem,
   NormalizedTarget,
   PriceSnapshot,
+  ResearchContext,
   ResearchJob,
   ResearchRequest,
   ResearchSourceResult,
@@ -14,7 +17,7 @@ import { fetchDirectPage, type DirectPageResult } from '../providers/direct-page
 import { searchDuckDuckGo } from '../providers/duckduckgo.ts';
 import { searchCrossref } from '../providers/crossref.ts';
 import type { SearchHit } from '../providers/index.ts';
-import { buildSourcePlan, type SourceQuery } from '../providers/source-plan.ts';
+import { buildSourcePlan, shouldUseAcademicResearch, type SourceQuery } from '../providers/source-plan.ts';
 
 export interface RelayClient {
   isAvailable(): Promise<boolean>;
@@ -78,20 +81,89 @@ function classifySearchHit(hit: SearchHit): EvidenceItem['evidenceClass'] {
   }
 }
 
-function searchHitEvidence(hit: SearchHit, retrievedAt: string, source?: SourceQuery): EvidenceItem {
+function evidenceClassForSearch(source: SourceQuery | undefined, hit: SearchHit): EvidenceItem['evidenceClass'] {
+  if (!source) return classifySearchHit(hit);
+  switch (source.id) {
+    case 'naver-shopping':
+    case 'coupang':
+    case 'danawa':
+      return 'retailer_listing';
+    case 'naver-blog':
+    case 'naver-cafe':
+    case 'reddit':
+    case 'instagram':
+      return 'community_report';
+    case 'youtube':
+    case 'news':
+      return 'editorial_review';
+    case 'official':
+    case 'general':
+      return classifySearchHit(hit);
+    default:
+      return source.evidenceClass;
+  }
+}
+
+function searchHitEvidence(
+  hit: SearchHit,
+  retrievedAt: string,
+  target: NormalizedTarget,
+  source?: SourceQuery,
+): EvidenceItem | null {
+  if (source?.specificity === 'general_mechanism') {
+    return {
+      claim: [hit.title, hit.snippet].filter(Boolean).join(' — '),
+      sourceUrl: hit.url,
+      sourceType: source.sourceType,
+      retrievedAt,
+      acquisitionMethod: 'search_metadata',
+      evidenceClass: source.evidenceClass,
+      independenceKey: `search:${hit.url}`,
+      confidence: hit.snippet ? 0.4 : 0.32,
+      specificity: 'general_mechanism',
+      notes: `General-mechanism search-index evidence from ${source.id}; it is not direct proof of the exact product.`,
+    };
+  }
+
+  if (target.kind === 'product') {
+    const match = matchEvidenceToProduct(target, hit);
+    if (match.level === 'unrelated') return null;
+    const specificity = match.level === 'exact_product' ? 'exact_product' : 'category';
+    const confidence = match.level === 'exact_product'
+      ? 0.45 + (0.2 * match.score)
+      : 0.28 + (0.18 * match.score);
+    const evidenceClass = evidenceClassForSearch(source, hit);
+    const signals = match.level === 'exact_product'
+      ? deriveExplicitSearchSignals(hit, evidenceClass, target)
+      : {};
+    return {
+      claim: [hit.title, hit.snippet].filter(Boolean).join(' — '),
+      sourceUrl: hit.url,
+      sourceType: source?.sourceType ?? 'search_result',
+      retrievedAt,
+      acquisitionMethod: 'search_metadata',
+      evidenceClass,
+      independenceKey: `search:${hit.url}`,
+      confidence,
+      specificity,
+      notes: `Identity match: ${match.level} (${match.score.toFixed(2)}). Search metadata is weaker than direct retrieval; source class is derived from the actual result host/source family, and sentiment/price signals are recorded only when explicit wording is present.`,
+      data: { identityMatch: match.level, identityMatchScore: match.score, ...signals },
+    };
+  }
+
   return {
     claim: [hit.title, hit.snippet].filter(Boolean).join(' — '),
     sourceUrl: hit.url,
     sourceType: source?.sourceType ?? 'search_result',
     retrievedAt,
     acquisitionMethod: 'search_metadata',
-    evidenceClass: source?.evidenceClass ?? classifySearchHit(hit),
+    evidenceClass: evidenceClassForSearch(source, hit),
     independenceKey: `search:${hit.url}`,
-    confidence: hit.snippet ? 0.5 : 0.4,
-    specificity: source?.specificity ?? 'exact_product',
+    confidence: hit.snippet ? 0.45 : 0.35,
+    specificity: source?.specificity ?? 'category',
     notes: source
-      ? `Search-index evidence from ${source.id}; direct source retrieval may increase confidence.`
-      : 'Search-index evidence only; direct source retrieval may increase confidence.',
+      ? `Search-index evidence from ${source.id}; direct retrieval may increase confidence.`
+      : 'Search-index evidence only; direct retrieval may increase confidence.',
   };
 }
 
@@ -127,8 +199,9 @@ function sourceResult(
 function mergeTargetFromPage(target: NormalizedTarget, page: DirectPageResult): NormalizedTarget {
   const merged: NormalizedTarget = { ...target };
   if (page.product?.name) merged.name = page.product.name;
-  else if (page.title) merged.name = page.title;
+  else if (!merged.name && page.title) merged.name = page.title;
   if (page.product?.brand) merged.brand = page.product.brand;
+  if (page.product?.sku) merged.model = page.product.sku;
   if (!merged.canonicalUrl) merged.canonicalUrl = page.url;
   try {
     if (!merged.sourceHost) merged.sourceHost = new URL(page.url).hostname;
@@ -141,9 +214,11 @@ function mergeTargetFromPage(target: NormalizedTarget, page: DirectPageResult): 
 
 function relayEvidence(url: string, price: PriceSnapshot, retrievedAt: string): EvidenceItem {
   const bits: string[] = [];
+  if (price.salePrice !== undefined) bits.push(`판매가 ${price.salePrice} ${price.currency}`);
   if (price.membershipPrice !== undefined) bits.push(`멤버십 가격 ${price.membershipPrice} ${price.currency}`);
   if (price.couponPrice !== undefined) bits.push(`쿠폰가 ${price.couponPrice} ${price.currency}`);
   if (price.estimatedPoints !== undefined) bits.push(`예상 적립 ${price.estimatedPoints} ${price.currency}`);
+  if (price.shippingFee !== undefined) bits.push(`배송비 ${price.shippingFee} ${price.currency}`);
   if (price.shippingEta) bits.push(`배송 예정 ${price.shippingEta}`);
   return {
     claim: bits.length ? bits.join(' / ') : '로그인 세션에서 개인화 가격·배송 정보를 확인함',
@@ -162,12 +237,13 @@ function relayEvidence(url: string, price: PriceSnapshot, retrievedAt: string): 
 export async function runResearch(
   request: ResearchRequest,
   deps: ResearchDependencies = createDefaultResearchDependencies(),
+  context: ResearchContext = {},
 ): Promise<ResearchJob> {
   const question = request.question.trim();
   if (!question) throw new Error('Research question is required');
 
   const createdAt = timestamp(deps);
-  let target = targetFromRequest(request);
+  let target = context.resolvedTarget ? { ...context.resolvedTarget } : targetFromRequest(request);
   const evidence: EvidenceItem[] = [];
   const sourceResults: ResearchSourceResult[] = [];
   const errors: string[] = [];
@@ -203,7 +279,8 @@ export async function runResearch(
         const hits = await deps.publicSearch(source.query);
         const searchEvidence = hits
           .slice(0, source.maxHits)
-          .map((hit) => searchHitEvidence(hit, timestamp(deps), source));
+          .map((hit) => searchHitEvidence(hit, timestamp(deps), target, source))
+          .filter((item): item is EvidenceItem => item !== null);
         return { sourceName, startedAt, searchEvidence } as const;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -222,9 +299,9 @@ export async function runResearch(
     }
   }
 
-  if (deps.academicSearch && (target.kind === 'product' || request.category === 'product' || request.category === 'auto')) {
+  if (deps.academicSearch && shouldUseAcademicResearch(request.question) && (target.kind === 'product' || request.category === 'product' || request.category === 'auto')) {
     const startedAt = timestamp(deps);
-    const academicQuery = [request.question, target.name ? 'bed sleep ergonomics material safety' : 'sleep ergonomics product safety']
+    const academicQuery = [request.question, target.name ? 'product ergonomics safety performance' : 'ergonomics product safety']
       .filter(Boolean)
       .join(' ')
       .slice(0, 260);
@@ -283,9 +360,16 @@ export async function runResearch(
     relay,
     errors,
   };
+  if (Object.keys(context).length) job.researchContext = { ...context, resolvedTarget: { ...target } };
 
   if (target.kind === 'product' || request.url) {
-    job.report = buildProductReport({ target: target.kind === 'unknown' ? { ...target, kind: 'product' } : target, evidence: normalized, ...(personalizedPrice ? { personalizedPrice } : {}) });
+    job.report = buildProductReport({
+      target: target.kind === 'unknown' ? { ...target, kind: 'product' } : target,
+      evidence: normalized,
+      ...(personalizedPrice ? { personalizedPrice } : {}),
+      ...(context.intent ? { intent: context.intent } : {}),
+      ...(context.identityConfidence !== undefined ? { identityConfidence: context.identityConfidence } : {}),
+    });
   }
 
   return job;

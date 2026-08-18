@@ -31,8 +31,8 @@ function deps(overrides: Partial<ResearchDependencies> = {}): ResearchDependenci
   return {
     directPage: async () => directResult(),
     publicSearch: async () => [
-      { title: '1년 사용 후기', url: 'https://example.com/review', snippet: '프레임이 안정적이라는 장기 후기' },
-      { title: '조립 후기', url: 'https://www.youtube.com/watch?v=x', snippet: '조립성과 소음 확인' },
+      { title: '밀도 원목 수납침대 K 1년 사용 후기', url: 'https://example.com/review/7322162980', snippet: '밀도 원목 수납침대 K 7322162980 프레임이 안정적이라는 장기 후기' },
+      { title: '밀도 원목 수납침대 K 조립 후기', url: 'https://www.youtube.com/watch?v=7322162980', snippet: '밀도 원목 수납침대 K 7322162980 조립성과 소음 확인' },
     ],
     relayClient: null,
     now: () => new Date('2026-08-17T00:00:00.000Z'),
@@ -57,7 +57,7 @@ test('orchestrator combines direct URL evidence with related public search and i
 test('provider failure degrades to a partial result instead of discarding successful evidence', async () => {
   const job = await runResearch({ question: '어때?', url }, deps({
     directPage: async () => { throw new Error('blocked'); },
-    publicSearch: async () => [{ title: '사용 후기', url: 'https://example.com/review', snippet: '장기 사용 후기' }],
+    publicSearch: async () => [{ title: '밀도 원목 수납침대 K 7322162980 사용 후기', url: 'https://example.com/review/7322162980', snippet: '상품 7322162980 장기 사용 후기' }],
   }));
   assert.equal(job.status, 'partial');
   assert.ok(job.evidence.length >= 1);
@@ -95,16 +95,69 @@ test('online relay merges only normalized personalized price fields into the rep
   assert.equal(job.report?.personalizedPrice?.shippingEta, '2026-08-20');
 });
 
+test('generic KC pages are not promoted to exact-product evidence by a product-shaped search query', async () => {
+  const job = await runResearch({ question: '이 침대 어때?', url }, deps({
+    publicSearch: async () => [{
+      title: 'KCL 안전인증 KC 생활용품',
+      url: 'https://www.kcl.re.kr/kc',
+      snippet: '제품의 안전성 시험검사와 KC 인증 업무를 수행합니다.',
+    }],
+  }));
+
+  assert.equal(job.evidence.some((item) => item.sourceUrl === 'https://www.kcl.re.kr/kc' && item.specificity === 'exact_product'), false);
+});
+
+test('an unofficial exact-product page returned by the official query is not labeled as an official record', async () => {
+  const blogUrl = 'https://blog.naver.com/reviewer/mildo-7322162980-spec';
+  const job = await runResearch({ question: '이 침대 어때?', url }, deps({
+    publicSearch: async (query) => query.includes('공식 스펙 보증 AS 인증') ? [{
+      title: '밀도 원목 수납침대 K 7322162980 스펙 정리',
+      url: blogUrl,
+      snippet: '밀도 원목 수납침대 K 7322162980 개인 사용자가 정리한 스펙',
+    }] : [],
+  }));
+
+  const item = job.evidence.find((entry) => entry.sourceUrl === blogUrl);
+  assert.ok(item);
+  assert.notEqual(item?.evidenceClass, 'official_record');
+  assert.notEqual(item?.evidenceClass, 'accredited_test');
+});
+
+test('exact-product snippets structure only explicit review sentiment, current price, and price-value wording', async () => {
+  const job = await runResearch({ question: '이 침대 지금 가격이면 살만해?', url }, deps({
+    publicSearch: async (query) => {
+      if (query.includes('site:blog.naver.com')) return [{
+        title: '밀도 원목 수납침대 K 7322162980 장기 사용 만족 추천',
+        url: 'https://blog.naver.com/reviewer/positive-7322162980',
+        snippet: '1년 사용 후에도 튼튼하고 안정적이라 만족한다는 후기',
+      }];
+      if (query.includes('site:danawa.com')) return [{
+        title: '밀도 원목 수납침대 K 7322162980 399,000원 특가',
+        url: 'https://prod.danawa.com/7322162980',
+        snippet: '현재 399,000원 할인 특가 가격',
+      }];
+      return [];
+    },
+  }));
+
+  const review = job.evidence.find((item) => item.sourceUrl.includes('positive-7322162980'));
+  const price = job.evidence.find((item) => item.sourceUrl.includes('danawa.com'));
+  assert.ok((review?.data?.sentiment as number | undefined) !== undefined);
+  assert.ok((review?.data?.sentiment as number) > 0.3);
+  assert.equal(((price?.data?.product as any)?.offers?.price), 399000);
+  assert.ok((price?.data?.priceSignal as number) > 0);
+});
+
 test('orchestrator executes bounded source-specific searches instead of a single generic search', async () => {
   const queries: string[] = [];
   const job = await runResearch({ question: '이 침대 어때? 논문까지 확인해줘', url }, deps({
     publicSearch: async (query) => {
       queries.push(query);
-      return [{ title: `결과 ${queries.length}`, url: `https://example.com/${queries.length}`, snippet: '근거 요약' }];
+      return [{ title: `밀도 원목 수납침대 K 7322162980 결과 ${queries.length}`, url: `https://example.com/7322162980/${queries.length}`, snippet: '밀도 원목 수납침대 K 7322162980 근거 요약' }];
     },
   }));
 
-  assert.ok(queries.length >= 10);
+  assert.ok(queries.length >= 9);
   assert.ok(queries.length <= 14);
   assert.ok(queries.some((query) => query.includes('site:blog.naver.com')));
   assert.ok(queries.some((query) => query.includes('site:cafe.naver.com')));

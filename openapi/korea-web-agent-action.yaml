@@ -1,0 +1,241 @@
+openapi: 3.1.0
+info:
+  title: Korea Web Agent
+  version: 0.3.0
+  description: Read-only Korean product research with optional authenticated local-browser pricing.
+servers:
+  - url: https://korea-web-agent.netlify.app
+security:
+  - bearerAuth: []
+paths:
+  /api/agent/research:
+    post:
+      operationId: startProductResearch
+      summary: Research a concrete product and decide whether current evidence supports buying, waiting, skipping, or more research.
+      description: Use for product research, current-price questions, purchase decisions, review synthesis, or comparisons. The backend decides automatically whether authenticated PC pricing is useful.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [query]
+              properties:
+                query:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+                  description: Natural-language product question, preferably including brand/model/variant when known.
+                url:
+                  type: string
+                  format: uri
+                  maxLength: 4000
+                  description: Optional public product URL when the user supplied one.
+      responses:
+        '200':
+          description: Research completed without a pending authenticated-browser job.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResearchResult'
+        '202':
+          description: Public research completed and an authenticated PC browser result is pending. Poll pollUrl or getProductResearchResult using jobId.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResearchResult'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/agent/jobs/{id}:
+    get:
+      operationId: getProductResearchResult
+      summary: Get the latest result for a product research job.
+      description: Call after startProductResearch returns status=running. Continue only while status is running; stop polling after a terminal status.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      responses:
+        '200':
+          description: Current or final structured research result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResearchResult'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API-Key
+  responses:
+    Error:
+      description: Request error.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: string
+  schemas:
+    ResearchIntent:
+      type: object
+      required: [productResearch, purchaseDecision, priceSensitive, personalizedPriceUseful, specOnly]
+      properties:
+        productResearch: { type: boolean }
+        purchaseDecision: { type: boolean }
+        priceSensitive: { type: boolean }
+        personalizedPriceUseful: { type: boolean }
+        specOnly: { type: boolean }
+    PriceSnapshot:
+      type: object
+      required: [currency]
+      properties:
+        currency: { type: string }
+        listPrice: { type: number }
+        salePrice: { type: number }
+        couponPrice: { type: number }
+        membershipPrice: { type: number }
+        estimatedPoints: { type: number }
+        shippingFee: { type: number }
+        shippingEta: { type: string }
+        selectedOption: { type: string }
+        availability: { type: string }
+        sourceUrl: { type: string, format: uri }
+    ConfidenceDimensions:
+      type: object
+      properties:
+        identity: { type: number, minimum: 0, maximum: 1 }
+        price: { type: number, minimum: 0, maximum: 1 }
+        officialSpecs: { type: number, minimum: 0, maximum: 1 }
+        reviews: { type: number, minimum: 0, maximum: 1 }
+        negativeSignals: { type: number, minimum: 0, maximum: 1 }
+        personalizedPrice: { type: number, minimum: 0, maximum: 1 }
+    ProductCandidate:
+      type: object
+      properties:
+        title: { type: string }
+        score: { type: number }
+        sourceUrls:
+          type: array
+          items: { type: string, format: uri }
+    ProductIdentity:
+      type: object
+      required: [kind, identityConfidence, ambiguous, candidates]
+      properties:
+        kind: { type: string, enum: [product, place, service, unknown] }
+        brand: { type: string }
+        name: { type: string }
+        model: { type: string }
+        variant: { type: string }
+        productId: { type: string }
+        sourceHost: { type: string }
+        canonicalUrl: { type: string, format: uri }
+        identityConfidence: { type: number, minimum: 0, maximum: 1 }
+        ambiguous: { type: boolean }
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductCandidate'
+    RelaySummary:
+      type: object
+      required: [requested, available, used, mode]
+      properties:
+        requested: { type: boolean }
+        available: { type: boolean }
+        used: { type: boolean }
+        mode: { type: string, enum: [offline, public_only, local_authenticated] }
+        message: { type: string }
+    EvidenceSummary:
+      type: object
+      required: [claim, sourceUrl, evidenceClass, confidence]
+      properties:
+        claim: { type: string }
+        sourceUrl: { type: string, format: uri }
+        evidenceClass: { type: string }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        specificity: { type: string, enum: [exact_product, category, general_mechanism] }
+    SourceCoverage:
+      type: object
+      required: [attempted, succeeded, failed, evidenceCount]
+      properties:
+        attempted: { type: integer, minimum: 0 }
+        succeeded: { type: integer, minimum: 0 }
+        failed: { type: integer, minimum: 0 }
+        evidenceCount: { type: integer, minimum: 0 }
+    AgentResearchResult:
+      type: object
+      required:
+        - status
+        - query
+        - intent
+        - product
+        - decision
+        - confidence
+        - relay
+        - summary
+        - reasons
+        - strengths
+        - weaknesses
+        - missingInformation
+        - evidence
+        - sourceCoverage
+        - errors
+      properties:
+        status: { type: string, enum: [queued, running, completed, partial, failed] }
+        jobId: { type: string }
+        pollUrl: { type: string }
+        query: { type: string }
+        intent:
+          $ref: '#/components/schemas/ResearchIntent'
+        product:
+          $ref: '#/components/schemas/ProductIdentity'
+        decision: { type: string, enum: [BUY, WAIT, SKIP, INSUFFICIENT] }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        confidenceDimensions:
+          $ref: '#/components/schemas/ConfidenceDimensions'
+        price:
+          $ref: '#/components/schemas/PriceSnapshot'
+        personalizedPrice:
+          $ref: '#/components/schemas/PriceSnapshot'
+        relay:
+          $ref: '#/components/schemas/RelaySummary'
+        summary: { type: string }
+        reasons:
+          type: array
+          items: { type: string }
+        strengths:
+          type: array
+          items: { type: string }
+        weaknesses:
+          type: array
+          items: { type: string }
+        missingInformation:
+          type: array
+          items: { type: string }
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceSummary'
+        sourceCoverage:
+          $ref: '#/components/schemas/SourceCoverage'
+        errors:
+          type: array
+          items: { type: string }
