@@ -1,4 +1,5 @@
 import { normalizeEvidence } from '../core/evidence.ts';
+import { matchEvidenceToProduct } from '../core/product-match.ts';
 import type { EvidenceItem, NormalizedTarget, PriceSnapshot, ResearchJob } from '../core/types.ts';
 import { buildProductReport } from '../report/product-report.ts';
 import { sanitizeRelayResult } from './protocol.ts';
@@ -54,6 +55,25 @@ function hasUsefulCommerceFields(price: PriceSnapshot): boolean {
     Boolean(price.shippingEta || price.selectedOption || price.availability);
 }
 
+function relayTitleConsistent(job: ResearchJob, title: string): boolean {
+  const target = job.target;
+  const hasResolvedDescriptors = Boolean(target.name || target.model || target.variant);
+  if (!hasResolvedDescriptors) return true;
+  const descriptorTarget: NormalizedTarget = {
+    kind: 'product',
+    ...(target.brand ? { brand: target.brand } : {}),
+    ...(target.name ? { name: target.name } : {}),
+    ...(target.model ? { model: target.model } : {}),
+    ...(target.variant ? { variant: target.variant } : {}),
+  };
+  const match = matchEvidenceToProduct(descriptorTarget, {
+    title,
+    url: 'https://relay.invalid/product',
+    snippet: '',
+  });
+  return match.level === 'exact_product' || match.level === 'probable_product';
+}
+
 function mergeTarget(job: ResearchJob, title: string | undefined): NormalizedTarget {
   const target: NormalizedTarget = job.target.kind === 'unknown'
     ? { ...job.target, kind: 'product' }
@@ -82,8 +102,8 @@ function relayEvidence(job: ResearchJob, target: NormalizedTarget, price: PriceS
     acquisitionMethod: 'local_relay',
     evidenceClass: 'retailer_listing',
     independenceKey: `local-relay:${url}`,
-    confidence: title ? 0.88 : 0.82,
-    specificity: 'exact_product',
+    confidence: title ? 0.88 : 0.72,
+    specificity: title || hasUsefulCommerceFields(price) ? 'exact_product' : 'category',
     data: {
       ...(title ? { product: { name: title } } : {}),
       ...(hasUsefulCommerceFields(price) ? { priceSnapshot: price } : {}),
@@ -93,9 +113,12 @@ function relayEvidence(job: ResearchJob, target: NormalizedTarget, price: PriceS
 
 export function applyPersonalizedRelayResult(job: ResearchJob, rawResult: unknown, completedAt = new Date().toISOString()): ResearchJob {
   const object = sanitizedObject(rawResult);
-  const title = stringField(object.title);
-  const price = priceFromObject(object);
-  const usefulCommerce = hasUsefulCommerceFields(price);
+  const rawTitle = stringField(object.title);
+  const titleRejected = Boolean(rawTitle && !relayTitleConsistent(job, rawTitle));
+  const title = titleRejected ? undefined : rawTitle;
+  const rawPrice = priceFromObject(object);
+  const price: PriceSnapshot = titleRejected ? { currency: rawPrice.currency } : rawPrice;
+  const usefulCommerce = !titleRejected && hasUsefulCommerceFields(price);
   const target = mergeTarget(job, title);
   const localEvidence = relayEvidence(job, target, price, title, completedAt);
   const evidence = normalizeEvidence([...job.evidence.filter((item) => item.acquisitionMethod !== 'local_relay'), localEvidence]);
@@ -103,24 +126,27 @@ export function applyPersonalizedRelayResult(job: ResearchJob, rawResult: unknow
     ...job.sourceResults.filter((source) => source.source !== 'local_relay'),
     {
       source: 'local_relay',
-      success: true,
+      success: !titleRejected,
       acquisitionMethod: 'local_relay' as const,
       attemptedAt: completedAt,
       completedAt,
       evidence: [localEvidence],
+      ...(titleRejected ? { error: 'Authenticated page title did not match the resolved product identity; personalized commerce fields were ignored.' } : {}),
     },
   ];
   const relay = {
     available: true,
     used: true,
     mode: 'local_authenticated' as const,
-    message: usefulCommerce
-      ? 'Personalized read-only commerce fields were read from the local authenticated browser.'
-      : title
-        ? 'The authenticated browser confirmed product identity but returned no personalized price or delivery fields.'
-        : 'The authenticated browser returned no useful normalized commerce fields.',
+    message: titleRejected
+      ? 'Authenticated page title did not match the resolved product identity; personalized commerce fields were ignored.'
+      : usefulCommerce
+        ? 'Personalized read-only commerce fields were read from the local authenticated browser.'
+        : title
+          ? 'The authenticated browser confirmed product identity but returned no personalized price or delivery fields.'
+          : 'The authenticated browser returned no useful normalized commerce fields.',
   };
-  const status: ResearchJob['status'] = job.errors.length ? 'partial' : 'completed';
+  const status: ResearchJob['status'] = job.errors.length || titleRejected ? 'partial' : 'completed';
   const report = buildProductReport({
     target,
     evidence,
