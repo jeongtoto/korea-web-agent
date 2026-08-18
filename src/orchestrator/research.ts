@@ -4,6 +4,7 @@ import type {
   EvidenceItem,
   NormalizedTarget,
   PriceSnapshot,
+  ResearchContext,
   ResearchJob,
   ResearchRequest,
   ResearchSourceResult,
@@ -170,7 +171,7 @@ function sourceResult(
 function mergeTargetFromPage(target: NormalizedTarget, page: DirectPageResult): NormalizedTarget {
   const merged: NormalizedTarget = { ...target };
   if (page.product?.name) merged.name = page.product.name;
-  else if (page.title) merged.name = page.title;
+  else if (!merged.name && page.title) merged.name = page.title;
   if (page.product?.brand) merged.brand = page.product.brand;
   if (page.product?.sku) merged.model = page.product.sku;
   if (!merged.canonicalUrl) merged.canonicalUrl = page.url;
@@ -208,12 +209,13 @@ function relayEvidence(url: string, price: PriceSnapshot, retrievedAt: string): 
 export async function runResearch(
   request: ResearchRequest,
   deps: ResearchDependencies = createDefaultResearchDependencies(),
+  context: ResearchContext = {},
 ): Promise<ResearchJob> {
   const question = request.question.trim();
   if (!question) throw new Error('Research question is required');
 
   const createdAt = timestamp(deps);
-  let target = targetFromRequest(request);
+  let target = context.resolvedTarget ? { ...context.resolvedTarget } : targetFromRequest(request);
   const evidence: EvidenceItem[] = [];
   const sourceResults: ResearchSourceResult[] = [];
   const errors: string[] = [];
@@ -330,9 +332,16 @@ export async function runResearch(
     relay,
     errors,
   };
+  if (Object.keys(context).length) job.researchContext = { ...context, resolvedTarget: { ...target } };
 
   if (target.kind === 'product' || request.url) {
-    job.report = buildProductReport({ target: target.kind === 'unknown' ? { ...target, kind: 'product' } : target, evidence: normalized, ...(personalizedPrice ? { personalizedPrice } : {}) });
+    job.report = buildProductReport({
+      target: target.kind === 'unknown' ? { ...target, kind: 'product' } : target,
+      evidence: normalized,
+      ...(personalizedPrice ? { personalizedPrice } : {}),
+      ...(context.intent ? { intent: context.intent } : {}),
+      ...(context.identityConfidence !== undefined ? { identityConfidence: context.identityConfidence } : {}),
+    });
   }
 
   return job;
