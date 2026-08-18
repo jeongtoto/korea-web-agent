@@ -13,6 +13,18 @@
   force = true
 
 [[redirects]]
+  from = "/api/agent/research"
+  to = "/.netlify/functions/agent-research"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/agent/jobs/*"
+  to = "/.netlify/functions/agent-job?id=:splat"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/research"
   to = "/.netlify/functions/research"
   status = 200
