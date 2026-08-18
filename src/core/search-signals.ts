@@ -35,11 +35,29 @@ function explicitPriceSignal(text: string): number | undefined {
 
 function explicitKrwPrice(text: string): number | undefined {
   const matches = [...text.matchAll(/(?:₩\s*)?(\d{1,3}(?:,\d{3})+|\d{4,})\s*원/g)];
+  const candidates: Array<{ value: number; priority: number }> = [];
+
   for (const match of matches) {
     const value = Number((match[1] ?? '').replace(/,/g, ''));
-    if (Number.isFinite(value) && value >= 1_000) return value;
+    if (!Number.isFinite(value) || value < 1_000 || match.index === undefined) continue;
+    const start = Math.max(0, match.index - 18);
+    const end = Math.min(text.length, match.index + match[0].length + 18);
+    const context = text.slice(start, end);
+
+    let priority = 0;
+    if (/(쿠폰가|쿠폰 적용|멤버십가|회원가|최저가|할인가|행사가)/.test(context)) priority += 5;
+    else if (/(판매가|현재가|현재|특가|가격)/.test(context)) priority += 4;
+    else if (/(정가|정상가)/.test(context)) priority += 1;
+
+    if (/(적립|포인트|리워드|캐시|배송비|배송료)/.test(context) && !/(판매가|현재가|쿠폰가|멤버십가|회원가|할인가)/.test(context)) {
+      priority -= 6;
+    }
+    if (priority >= 0) candidates.push({ value, priority });
   }
-  return undefined;
+
+  if (!candidates.length) return undefined;
+  candidates.sort((a, b) => (b.priority - a.priority) || (b.value - a.value));
+  return candidates[0]?.value;
 }
 
 export function deriveExplicitSearchSignals(
