@@ -17,6 +17,15 @@ test('parses SmartStore product URL', () => {
   assert.equal(target?.productId, '123456789');
 });
 
+test('parses Naver Shopping Live product URL without fabricating a brand', () => {
+  const target = parseNaverProductUrl('https://product.shoppinglive.naver.com/products/11458011168?prdFrom=x&NaPm=y');
+  assert.equal(target?.kind, 'product');
+  assert.equal(target?.productId, '11458011168');
+  assert.equal(target?.sourceHost, 'product.shoppinglive.naver.com');
+  assert.equal(target?.brand, undefined);
+  assert.equal(target?.canonicalUrl, 'https://product.shoppinglive.naver.com/products/11458011168');
+});
+
 test('returns null for a non-Naver product URL', () => {
   assert.equal(parseNaverProductUrl('https://example.com/products/123'), null);
 });
