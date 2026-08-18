@@ -11,26 +11,26 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
       - name: Wait for Netlify production health
         shell: bash
         run: |
           set -euo pipefail
           url='https://korea-web-agent.netlify.app/api/health'
-          for attempt in $(seq 1 30); do
+          for attempt in $(seq 1 35); do
             body="$(curl --fail --silent --show-error --max-time 15 "$url" || true)"
-            if echo "$body" | jq -e '.ok == true and .service == "korea-web-agent" and .runtime == "netlify"' >/dev/null 2>&1; then
+            if echo "$body" | jq -e '.ok == true and .service == "korea-web-agent" and .version == "0.3.0" and .runtime == "netlify"' >/dev/null 2>&1; then
               echo "$body"
               exit 0
             fi
-            echo "Waiting for production deploy ($attempt/30)..."
+            echo "Waiting for v0.3 production deploy ($attempt/35)..."
             sleep 4
           done
-          echo 'Netlify health endpoint did not become ready in time.' >&2
+          echo 'Netlify v0.3 health endpoint did not become ready in time.' >&2
           exit 1
 
-      - name: Verify PWA shell
+      - name: Verify PWA diagnostic shell
         shell: bash
         run: |
           set -euo pipefail
@@ -46,7 +46,7 @@ jobs:
           echo "$body"
           echo "$body" | jq -e 'has("enabled") and has("online") and has("lastSeenAt")' >/dev/null
 
-      - name: Verify research route validation
+      - name: Verify legacy research route validation
         shell: bash
         run: |
           set -euo pipefail
@@ -57,3 +57,25 @@ jobs:
           cat /tmp/research.json
           test "$status" = '400'
           jq -e 'has("error")' /tmp/research.json >/dev/null
+
+      - name: Verify ChatGPT Action start route is protected
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error --output /tmp/agent-start.json --write-out '%{http_code}' --max-time 15 \
+            -H 'content-type: application/json' \
+            -d '{"query":"와이드뷰 43인치 4K V3 스탠드 어때?"}' \
+            https://korea-web-agent.netlify.app/api/agent/research)"
+          cat /tmp/agent-start.json
+          case "$status" in 401|503) ;; *) echo "unexpected Action status: $status" >&2; exit 1;; esac
+          jq -e 'has("error")' /tmp/agent-start.json >/dev/null
+
+      - name: Verify ChatGPT Action status route is protected
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error --output /tmp/agent-job.json --write-out '%{http_code}' --max-time 15 \
+            https://korea-web-agent.netlify.app/api/agent/jobs/nonexistent)"
+          cat /tmp/agent-job.json
+          case "$status" in 401|503) ;; *) echo "unexpected Action status: $status" >&2; exit 1;; esac
+          jq -e 'has("error")' /tmp/agent-job.json >/dev/null
