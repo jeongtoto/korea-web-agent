@@ -4,7 +4,7 @@
 
 Move Korea Web Agent from a dashboard-first prototype to a ChatGPT-first product-research backend while preserving the existing PWA as a diagnostic surface.
 
-The primary user experience is a dedicated Custom GPT named `Korea Web Agent`. The user should be able to ask a natural-language question such as:
+The primary experience is a dedicated Custom GPT named `Korea Web Agent`. The user should be able to ask:
 
 > 와이드뷰 43인치 4K V3 스탠드 어때?
 
@@ -14,26 +14,27 @@ Netlify remains the cloud backend. The PWA remains available for diagnostics and
 
 ## 2. Scope
 
-v0.3 focuses on product research. Place/service research remains compatible with existing interfaces but is not expanded in this milestone.
+v0.3 focuses on product research. Place/service research remains compatible with existing interfaces but is not expanded.
 
-v0.3 must add:
+v0.3 adds:
 
 - natural-language product resolution when no URL is supplied
 - Naver Shopping Live product URL support
-- explicit purchase-intent detection
+- deterministic purchase-intent detection
 - conditional local relay activation for price/purchase questions
 - product-identity matching for search evidence
-- confidence redesign based on coverage/quality rather than evidence count alone
-- decision gating so BUY/WAIT are not emitted without price evidence when price is material
-- a ChatGPT-oriented API endpoint
+- confidence based on coverage/quality rather than evidence count alone
+- decision gates so BUY/WAIT are not emitted without required identity/price evidence
+- a ChatGPT-oriented API
+- a private Action API key separate from the PC relay secret
 - an OpenAPI Action schema for a Custom GPT
 - end-to-end verification using `와이드뷰 43인치 4K V3 스탠드 어때?`
 
-v0.3 does not add purchasing, checkout, account mutation, messaging, review posting, or arbitrary browser automation.
+v0.3 does not add purchasing, checkout, account mutation, messaging, review posting, CAPTCHA bypass, or arbitrary browser automation.
 
 ## 3. Primary User Experience
 
-### 3.1 Product question without URL
+### 3.1 Purchase-evaluation question
 
 Input:
 
@@ -41,125 +42,92 @@ Input:
 와이드뷰 43인치 4K V3 스탠드 어때?
 ```
 
-Expected flow:
+Flow:
 
-1. Detect that this is a product/purchase-evaluation question.
-2. Resolve the most likely exact product identity from public search results.
-3. Require adequate identity confidence before exact-product research proceeds.
+1. Detect product/purchase-evaluation intent.
+2. Resolve the most likely exact product from public discovery results.
+3. Require adequate identity confidence before exact-product research.
 4. Gather current price, official specifications, retailer listings, real-user reviews, long-term complaints, A/S/warranty information, and meaningful alternatives.
-5. Because the question asks whether the product is “어때?”, treat price/purchase value as material and request personalized fields from the PC relay when an eligible product URL is available and the connector is online.
-6. Return a structured BUY / WAIT / SKIP / INSUFFICIENT decision with evidence coverage and unresolved gaps.
+5. Because `어때?` requests an overall purchase evaluation, treat price/value as material and request personalized fields from the PC relay when an eligible product URL is known and the connector is online.
+6. Return BUY / WAIT / SKIP / INSUFFICIENT with dimension coverage and unresolved gaps.
 7. ChatGPT presents the result conversationally.
 
 ### 3.2 Specification-only question
-
-Input:
 
 ```text
 와이드뷰 V3 43인치 패널 스펙 알려줘
 ```
 
-Expected flow:
+Public product resolution/research only. No PC relay and no agent Chrome window merely for a specification lookup.
 
-- public product resolution and research only
-- no PC relay
-- no browser window should open merely for a specification lookup
-
-### 3.3 Price-oriented question
-
-Input:
+### 3.3 Explicit price question
 
 ```text
 와이드뷰 V3 지금 사도 돼? 쿠폰까지 보면 얼마야?
 ```
 
-Expected flow:
-
-- public research
-- local authenticated relay when available
-- personalized price/coupon/membership/points/shipping fields merged into the final report
+Public research plus local authenticated relay when available. Personalized price/coupon/membership/points/shipping fields are merged into the report.
 
 ## 4. Intent Model
 
-Introduce an explicit intent classifier with at least these dimensions:
+Introduce a deterministic, testable classifier with these fields:
 
-- `product_research`: whether the question is about a product
-- `purchase_decision`: whether BUY/WAIT/SKIP is expected
-- `price_sensitive`: whether current price materially affects the answer
-- `personalized_price_useful`: whether account-specific price/coupon/shipping information would improve the answer
-- `spec_only`: whether the question can be answered without commerce/personalized data
+- `productResearch`
+- `purchaseDecision`
+- `priceSensitive`
+- `personalizedPriceUseful`
+- `specOnly`
 
-The first implementation should be deterministic and testable. Korean lexical triggers should cover phrases such as:
+Korean triggers include phrases such as `어때`, `살만해`, `살만한지`, `지금 사`, `사도 돼`, `최저가`, `가격 괜찮아`, `가성비`, `쿠폰`, `멤버십`, `적립`, `배송`, `특가`, `기다려`.
 
-- 어때
-- 살만해 / 살만한지
-- 지금 사 / 사도 돼
-- 최저가
-- 가격 괜찮아
-- 가성비
-- 쿠폰
-- 멤버십
-- 적립
-- 배송
-- 특가
-- 기다려
-
-A specification-only question must suppress relay use even if a product is successfully resolved.
-
-The API may accept an explicit override later, but v0.3 defaults to automatic intent detection.
+`specOnly` suppresses relay even if a product is resolved. v0.3 uses automatic intent detection; no user-facing relay checkbox is required by the ChatGPT API.
 
 ## 5. Product Resolver
 
-### 5.1 Responsibilities
-
-The Product Resolver converts either a URL or a natural-language product phrase into a normalized product target.
-
-It must produce:
+The Product Resolver converts either a URL or natural-language product phrase into a normalized target containing:
 
 - brand
 - product name
-- model when available
-- variant/size when available
-- product ID when available
-- canonical URL when available
+- model
+- variant/size
+- product ID
+- canonical URL
 - source host
 - identity confidence
 - identity evidence
-- ambiguity status and alternate candidates when needed
+- ambiguity status and alternate candidates
 
-### 5.2 Resolution order
+### URL resolution
 
-For URL input:
-
-1. Parse supported commerce URL patterns.
+1. Parse supported commerce patterns.
 2. Attempt direct metadata/structured-data extraction.
-3. Use relay title extraction when the URL is relay-eligible and public extraction cannot establish identity.
-4. Use targeted public search as fallback.
+3. For relay-eligible URLs, use authenticated title extraction when public extraction cannot establish identity and the request is already relay-eligible by intent.
+4. Use targeted public discovery as fallback.
 
-For query-only input:
+### Query-only resolution
 
-1. Extract candidate brand/model/size tokens from the question.
-2. Run a small bounded discovery search before the broader source plan.
+1. Extract likely brand/model/size/generation tokens from the question.
+2. Run a bounded discovery search before the broad source plan.
 3. Rank candidates by exact model/token overlap, brand overlap, size/variant consistency, domain authority, and repeated agreement across independent results.
-4. Resolve automatically only if one candidate clears the configured identity threshold and sufficiently exceeds the runner-up.
-5. Otherwise return ambiguity and do not pretend that generic evidence belongs to an exact product.
+4. Resolve automatically only when the top candidate clears the identity threshold and sufficiently exceeds the runner-up.
+5. Otherwise return ambiguity and `INSUFFICIENT`; never treat generic evidence as exact-product evidence.
 
-### 5.3 Naver URL coverage
+### Naver URL coverage
 
-The Naver adapter must support at least:
+Support at least:
 
 - `brand.naver.com/<store>/products/<id>`
 - `smartstore.naver.com/<store>/products/<id>`
 - `m.smartstore.naver.com/<store>/products/<id>`
 - `product.shoppinglive.naver.com/products/<id>`
 
-For Shopping Live URLs there is no store slug in the path, so `productId` must be extracted without fabricating a brand/store name. Tracking parameters are removed from the canonical identity URL.
+Shopping Live has no store slug in the path, so its product ID is extracted without fabricating brand/store data. Tracking parameters are removed from canonical identity URLs.
 
 ## 6. Evidence Matching
 
-Search metadata must no longer be labeled `exact_product` merely because it came from a query intended for the product.
+Search results are not `exact_product` merely because the search query targeted a product.
 
-Each candidate evidence item receives an identity match level:
+Use identity match levels:
 
 - `exact_product`
 - `probable_product`
@@ -167,43 +135,36 @@ Each candidate evidence item receives an identity match level:
 - `general_mechanism`
 - `unrelated`
 
-`probable_product` may contribute to discovery but must be weaker than exact evidence. `unrelated` evidence is excluded from report scoring.
+`probable_product` may aid discovery but is weaker than exact evidence. `unrelated` evidence is excluded from report scoring.
 
-Exact-product matching should consider, when available:
+Matching uses model code, product ID, brand, meaningful product-name tokens, size/capacity/generation/variant, and canonical manufacturer/retailer URL where available.
 
-- exact model code
-- product ID
-- brand
-- meaningful product-name tokens
-- size/capacity/generation/variant
-- canonical retailer/manufacturer URL
+Generic pages about KC certification, product safety, TVs, beds, or shopping advice must never become exact-product evidence solely because the search query contained the product name.
 
-A generic page about KC certification, product safety, TVs, beds, or consumer shopping must never become exact-product evidence solely because the search query contained the product name.
+## 7. Source Plan
 
-## 7. Source Plan Redesign
+Broad source research begins only after a useful product identity exists.
 
-Source planning begins only after a useful product identity exists.
-
-The default product plan should prioritize:
+Priority:
 
 1. official manufacturer/distributor product page
-2. exact retailer listings and current prices
+2. exact retailer listings/current prices
 3. price-comparison sources such as Danawa when discoverable
-4. Naver/major retailer listings
+4. Naver and other major retailer listings
 5. verified or retailer-hosted reviews
 6. Naver Blog/Cafe and other community reports
 7. YouTube reviews
-8. warranty/A/S and official safety/recall information
+8. warranty/A/S and exact-product safety/recall information
 9. relevant alternatives
-10. academic/general mechanism evidence only when the question actually benefits from it
+10. academic/general mechanism evidence only when materially relevant
 
-Academic evidence is not a mandatory query for ordinary purchase questions. It should be invoked for questions involving ergonomics, health, material safety, performance mechanisms, or when the user explicitly requests scientific evidence.
+Academic evidence is not mandatory for ordinary shopping questions. It is requested for health, ergonomics, material safety, performance mechanisms, or explicit scientific-evidence requests.
 
-The previous behavior that always queried generic safety and academic sources for every product must be removed.
+The old behavior that automatically queried generic safety and academic sources for every product is removed.
 
 ## 8. Price Model
 
-Extend price evidence so the report can distinguish:
+Price data distinguishes:
 
 - public list price
 - public sale price
@@ -217,41 +178,37 @@ Extend price evidence so the report can distinguish:
 - source URL
 - retrieval time
 
-The report should identify an `effectivePrice` using deterministic precedence appropriate to the available fields. Points must not silently be subtracted as cash unless explicitly represented as a separate effective-value calculation.
+`effectivePrice` uses deterministic precedence among actual payable prices. Points remain a separate value field and are not silently treated as cash.
 
-For purchase decisions, current price is a required decision dimension unless the question is explicitly about product quality regardless of price.
+For purchase decisions, current usable price is required unless the question explicitly asks about product quality irrespective of price.
 
-If current usable price cannot be established, the system must not emit BUY or WAIT based on price value. It should either:
+If current usable price cannot be established:
 
-- issue a non-price quality assessment while marking purchase timing `INSUFFICIENT`, or
-- return overall `INSUFFICIENT` when the user explicitly asks whether to buy now.
+- a quality-only assessment may still be produced, but purchase timing is `INSUFFICIENT`; and
+- an explicit “지금 살까?” question returns overall `INSUFFICIENT`, not BUY or WAIT.
 
 ## 9. Local Relay Policy
 
-The local relay remains read-only and preserves the existing security boundary.
+Relay is automatically requested only when all are true:
 
-Relay should be requested automatically only when all are true:
-
-1. the intent classifier marks `personalized_price_useful = true`
+1. `personalizedPriceUseful = true`
 2. a relay-eligible canonical product URL is known
-3. a relay secret is configured
+3. `KWA_RELAY_SECRET` is configured
 4. the PC connector is online
 
-The backend, not the PWA checkbox, decides this for the ChatGPT endpoint.
+The ChatGPT backend decides this; the PWA checkbox is irrelevant to the Action path.
 
-If the relay is unavailable, the request must continue with public data and clearly state that personalized price/coupon/delivery could not be checked.
+If relay is unavailable, research continues with public data and explicitly reports that personalized price/coupon/delivery could not be checked.
 
-The connector may return only normalized read-only fields already allowed by the protocol, including title, price, coupon/membership price, points, shipping, selected option, and availability. No password, cookie, token, localStorage, session identifier, or browser profile data may leave the PC.
+Allowed relay output remains normalized read-only fields: title, price, coupon/membership price, points, shipping, selected option, and availability. Passwords, raw cookies, tokens, localStorage, session identifiers, and browser-profile data never leave the PC.
 
-CAPTCHA or step-up authentication stops that extraction path; no bypass is attempted.
+CAPTCHA/MFA stops that source; no bypass is attempted.
 
-## 10. Confidence Redesign
+## 10. Confidence Model
 
-The current aggregate confidence formula compounds many independent-looking items toward 97%. That is unsuitable when search metadata is noisy.
+Replace the current count-compounding confidence formula with dimension coverage.
 
-v0.3 confidence is coverage-based, not count-based.
-
-Use explicit dimensions such as:
+Dimensions:
 
 - identity confidence
 - current-price confidence
@@ -261,72 +218,48 @@ Use explicit dimensions such as:
 - warranty/safety confidence when relevant
 - personalized-price confidence when requested
 
-Each dimension is capped independently. Adding ten weak search snippets must not substitute for missing product identity or missing price.
+Each dimension is independently capped. Ten weak snippets cannot substitute for missing identity or price.
 
-The final report confidence is derived from required-dimension coverage plus evidence quality. It should be impossible for unrelated generic sources to push an unresolved product to 97%.
+Invariants:
 
-Exact thresholds belong in implementation tests, but the design requires these invariants:
-
-- unresolved identity => low overall confidence and no BUY/WAIT/SKIP
+- unresolved identity => low confidence and no BUY/WAIT/SKIP
 - purchase-timing question with no usable price => no BUY/WAIT
 - general-mechanism papers cannot establish exact-product confidence
-- duplicate/syndicated sources count once
-- confidence does not rise materially from repeated low-quality metadata from the same factual origin
+- duplicate/syndicated factual origins count once
+- repeated low-quality metadata cannot push overall confidence toward 97%
+
+Implementation thresholds will be explicit constants covered by tests.
 
 ## 11. Decision Rules
 
-Output remains:
-
-- `BUY`
-- `WAIT`
-- `SKIP`
-- `INSUFFICIENT`
-
-Decision gates:
+Output remains `BUY`, `WAIT`, `SKIP`, or `INSUFFICIENT`.
 
 ### BUY
-Requires:
 
-- resolved exact product
-- adequate exact-product quality/review evidence
-- usable current price when purchase value is material
-- no dominant repeated negative signal
-- adequate decision confidence
+Requires resolved exact product, adequate exact-product quality/review evidence, usable current price when value is material, no dominant repeated negative signal, and adequate dimension coverage.
 
 ### WAIT
-Requires:
 
-- resolved exact product
-- acceptable product evidence
-- usable current price
-- evidence that timing/price is unattractive or a near-term better buying condition is supported
-
-WAIT must not be a fallback for uncertainty.
+Requires resolved exact product, acceptable product evidence, usable current price, and actual evidence that current timing/value is unattractive or that a better buying condition is supported. WAIT is not a fallback for uncertainty.
 
 ### SKIP
-Requires:
 
-- resolved exact product or sufficiently specific variant/category when the reason clearly applies
-- repeated credible negative evidence, poor value relative to alternatives, or a material product risk
+Requires resolved exact product or sufficiently specific variant/category plus repeated credible negatives, materially poor value versus alternatives, or a material risk.
 
 ### INSUFFICIENT
-Used when:
 
-- product identity is ambiguous
-- current price is required but unavailable
-- evidence is too generic/noisy
-- source conflicts cannot be resolved
-- personalized information was specifically required but unavailable and public information is insufficient
+Used for ambiguous identity, missing required price, generic/noisy evidence, unresolved variant conflicts, or insufficient data for the requested personalized comparison.
 
 ## 12. ChatGPT API
 
-Add a ChatGPT-oriented endpoint:
+Add:
 
 ```text
 POST /api/agent/research
+GET  /api/agent/jobs/:id
 ```
 
-Primary request:
+`POST /api/agent/research` accepts:
 
 ```json
 {
@@ -334,7 +267,7 @@ Primary request:
 }
 ```
 
-Optional URL may be supported:
+or optionally:
 
 ```json
 {
@@ -343,20 +276,26 @@ Optional URL may be supported:
 }
 ```
 
-The endpoint automatically handles:
+The endpoint performs intent classification, product resolution, relay policy, public research, and report synthesis.
 
-- category/intent classification
-- product resolution
-- relay policy
-- public research
-- report synthesis
+### Action authentication
 
-The response must be compact and ChatGPT-friendly. It should expose structured fields rather than HTML, including:
+All `/api/agent/*` routes require a separate bearer secret stored as:
 
-- resolved product identity
-- identity confidence/ambiguity
-- decision
-- decision confidence
+```text
+KWA_ACTION_API_KEY
+```
+
+This credential is configured in the Custom GPT Action authentication settings and Netlify environment. It must be distinct from `KWA_RELAY_SECRET`. The relay secret is never exposed to ChatGPT.
+
+### Response shape
+
+Expose compact structured fields:
+
+- resolved product identity and ambiguity
+- identity confidence
+- decision and decision confidence
+- per-dimension confidence/coverage
 - current public price
 - personalized price if used
 - relay status
@@ -364,108 +303,101 @@ The response must be compact and ChatGPT-friendly. It should expose structured f
 - strengths
 - weaknesses
 - missing information
-- relevant alternatives when available
-- evidence summaries with source URLs
+- alternatives when available
+- evidence summaries/source URLs
 - source coverage
 
-The existing `/api/research` endpoint remains for backward compatibility and PWA debugging.
+The existing `/api/research` remains for PWA/backward compatibility.
 
 ## 13. Long-Running Action Behavior
 
-PC relay completion can be asynchronous. The ChatGPT integration therefore needs a bounded action flow that does not depend on the PWA polling loop.
+This is resolved as a start/status contract rather than an unspecified synchronous wait.
 
-v0.3 should expose either:
+`POST /api/agent/research` returns:
 
-- a synchronous agent endpoint that waits within a safe serverless budget and returns the final result when possible, plus a job/status response if still running; or
-- a `start research` + `get research result` Action pair.
+- HTTP 200 with a final result if the job completes during the initial request; or
+- HTTP 202 with `jobId`, `status`, and `pollPath` when relay/public research is still running.
 
-Preferred design: keep one conceptual `research_product` operation in the GPT instructions, while the OpenAPI schema may expose a start/status pair if required by execution limits.
+`GET /api/agent/jobs/:id` returns the current/final structured result.
 
-The final implementation must not leave ChatGPT with a permanent `running` response and no retrievable result.
+The OpenAPI Action exposes two operations:
+
+- `researchProduct`
+- `getResearchResult`
+
+GPT instructions tell the model to call `getResearchResult` when `researchProduct` returns `running`. Polling is bounded: at most 6 status calls per user request, with the backend returning a useful public-only partial/final state if relay does not complete in time. A request must not remain permanently `running` with no retrievable report.
 
 ## 14. Custom GPT Action
 
-Provide an OpenAPI schema suitable for a dedicated `Korea Web Agent` Custom GPT.
+Provide `openapi/korea-web-agent-action.yaml` for the dedicated `Korea Web Agent` GPT.
 
-The GPT instructions should tell the model to call the research Action when the user asks about a concrete product, especially purchase value, current price, comparison, review synthesis, or whether to buy/wait/skip.
+The GPT instructions call the Action for concrete product research, purchase value, current price, comparison, review synthesis, or BUY/WAIT/SKIP questions. It does not call the Action for unrelated casual questions.
 
-The GPT should not call the Action for unrelated casual questions.
+The Action is read-only. The only client-facing credential is `KWA_ACTION_API_KEY`; `KWA_RELAY_SECRET` remains PC/cloud-internal.
 
-The Action should be read-only from the user's perspective. The backend must not expose relay bearer secrets to the GPT.
+## 15. PWA Role
 
-If an Action-specific API key is introduced, it must be a separate cloud credential from `KWA_RELAY_SECRET`. The PC relay secret must never be reused as a client-facing GPT Action credential.
+The PWA remains an internal/manual diagnostic tool. Cosmetic work is secondary.
 
-## 15. PWA Role in v0.3
-
-The PWA remains available as an internal/manual diagnostic tool.
-
-It should eventually display:
-
-- resolved product identity
-- whether relay was requested automatically
-- whether relay was actually used
-- per-dimension confidence
-- decision-gate failures
-
-However, cosmetic PWA work is secondary to the ChatGPT Action backend and can be deferred if it does not block testing.
+Useful diagnostic additions may show resolved identity, automatic relay decision, actual relay use, dimension confidence, and decision-gate failures, but these are not prerequisites for the ChatGPT Action launch unless needed to debug production failures.
 
 ## 16. Security
 
-Existing security requirements remain mandatory:
+Existing requirements remain mandatory:
 
-- relay domains remain allowlisted
-- relay jobs remain signed, expiring, and nonce-bearing
+- relay domains allowlisted
+- signed/expiring/nonce-bearing relay jobs
 - no arbitrary remote JavaScript execution
-- no credential-bearing URL support
+- no credential-bearing URLs
 - no private/local network URLs
 - no purchase/payment/account mutation
 - no CAPTCHA/MFA bypass
-- relay result sanitization rejects secret-bearing keys
+- relay result secret-key rejection
 
-New ChatGPT endpoint requirements:
+ChatGPT API requirements:
 
 - strict request-size limits
 - server-side URL validation
-- rate limiting or abuse controls where practical
-- no relay secret in Action schema, responses, logs, or client JavaScript
-- if Action authentication is added, use a distinct credential
+- bearer authentication with `KWA_ACTION_API_KEY`
+- no secrets in responses/logs/client JavaScript/OpenAPI examples
+- basic per-key request throttling in-process/serverless-safe where feasible; hard external rate limiting is not required for v0.3 acceptance
 
 ## 17. Error Handling
 
-The system must degrade explicitly:
-
-- resolver ambiguous -> return candidate ambiguity and `INSUFFICIENT`
+- resolver ambiguous -> candidates + `INSUFFICIENT`
 - direct Naver fetch 429 -> continue through discovery/search and/or relay
-- source blocked -> mark failed source, continue
-- relay offline -> public-only research with clear personalized-data gap
-- relay extraction returns no useful price -> do not claim personalized price was obtained
-- product page changes DOM -> return missing fields rather than a guessed number
-- conflicting model variants -> do not merge them as one exact product
+- source blocked -> record failure and continue
+- relay offline -> public-only with explicit personalized-data gap
+- relay returns no usable price -> do not claim personalized price obtained
+- DOM changed -> missing field, never guessed value
+- model/variant conflict -> do not merge as one exact product
 - conflicting prices -> retain source/timestamp/option context
+- Action auth failure -> HTTP 401 without revealing credential details
 
 ## 18. Testing Strategy
 
-Use test-driven development for every behavior change.
+Use TDD for every behavior change.
 
-Required new/changed tests:
+Required tests:
 
-1. Shopping Live URL parsing and tracking removal.
-2. Intent classifier: purchase question enables relay policy; spec-only question suppresses it.
-3. Query-only product resolution with a deterministic fake discovery provider.
+1. Shopping Live URL parsing/tracking removal.
+2. Purchase intent enables relay policy; spec-only suppresses it.
+3. Query-only product resolution with deterministic fake discovery results.
 4. Resolver ambiguity refuses exact-product classification.
 5. Evidence matcher rejects generic KC/product-safety pages as exact-product evidence.
 6. General research cannot drive exact-product confidence high.
-7. Many unrelated snippets cannot create 97% confidence.
+7. Many unrelated snippets cannot produce 97% confidence.
 8. Purchase-timing question without price yields `INSUFFICIENT`, not WAIT.
 9. WAIT requires a usable price signal.
-10. Relay is queued automatically for price-sensitive questions when a canonical eligible URL is available and connector is online.
-11. Relay is not queued for spec-only questions.
-12. Relay title/price merge improves product identity and price dimensions without exposing unsupported fields.
-13. ChatGPT endpoint accepts a query without URL.
-14. ChatGPT endpoint returns a stable structured response schema.
-15. Existing security/policy/relay tests continue to pass.
+10. Relay auto-queues for price-sensitive questions when canonical eligible URL exists and connector is online.
+11. Relay does not queue for spec-only questions.
+12. Relay title/price merge improves identity/price dimensions without unsupported fields.
+13. ChatGPT endpoint accepts query without URL.
+14. ChatGPT start/status API returns stable schemas.
+15. `/api/agent/*` rejects missing/wrong Action API key.
+16. Existing security/policy/relay tests continue to pass.
 
-CI acceptance remains:
+Acceptance commands:
 
 ```text
 npm ci
@@ -475,80 +407,79 @@ npm run build
 npm audit --omit=dev --audit-level=high
 ```
 
-## 19. Production Acceptance Test
+## 19. Production Acceptance
 
-The primary end-to-end acceptance query is:
+Primary query:
 
 ```text
 와이드뷰 43인치 4K V3 스탠드 어때?
 ```
 
-A production pass requires:
+Pass requires:
 
-1. The system identifies a concrete WideView 43-inch 4K V3 product or explicitly reports ambiguity.
-2. Generic KCL/KTC/product-safety pages do not appear as top exact-product reasons unless they directly refer to the resolved product.
-3. Irrelevant decades-old general product-safety papers are not automatically queried or used.
-4. The system obtains a usable current public price or marks price unavailable.
-5. For this purchase-evaluation wording, the relay is automatically attempted when an eligible product URL is resolved and the PC connector is online.
-6. If personalized fields are returned, the final report clearly distinguishes them from public price data.
-7. The final decision obeys the price and identity gates.
-8. The final confidence is supported by dimension coverage, not evidence count.
-9. ChatGPT can consume the response without the user visiting the PWA.
+1. Resolve a concrete WideView 43-inch 4K V3 product or explicitly report ambiguity.
+2. Generic KCL/KTC/product-safety pages are not top exact-product reasons unless they directly refer to the resolved product.
+3. Irrelevant old general product-safety papers are not automatically queried/used.
+4. Obtain a usable current public price or mark it unavailable.
+5. Because this is a purchase-evaluation question, automatically attempt relay when an eligible URL is resolved and the PC connector is online.
+6. Personalized fields are clearly separated from public price data.
+7. Decision obeys identity/price gates.
+8. Confidence reflects dimension coverage, not source count.
+9. Custom GPT obtains the result without the user visiting the PWA.
 
-A second acceptance query verifies relay suppression:
+Relay-suppression query:
 
 ```text
 와이드뷰 V3 43인치 패널 스펙 알려줘
 ```
 
-No local relay job should be created for that spec-only request.
+No local relay job is created.
 
 ## 20. Implementation Boundaries
 
-Expected code areas include:
+Expected areas:
 
-- `src/core/types.ts` — intent, identity confidence, match level, report coverage
+- `src/core/types.ts` — intent, match levels, confidence dimensions
 - `src/adapters/naver-product.ts` — Shopping Live support
-- new `src/orchestrator/intent.ts` — deterministic intent classification
-- new `src/orchestrator/product-resolver.ts` — discovery/ranking/ambiguity
-- new or revised evidence matching module — identity relevance
-- `src/providers/source-plan.ts` — identity-aware conditional source planning
+- new `src/orchestrator/intent.ts`
+- new `src/orchestrator/product-resolver.ts`
+- new/revised evidence matcher
+- `src/providers/source-plan.ts` — conditional identity-aware planning
 - `src/orchestrator/research.ts` — resolution-first orchestration
-- `src/core/evidence.ts` — confidence model support
-- `src/report/product-report.ts` — decision gates and dimension confidence
+- `src/core/evidence.ts` — coverage scoring support
+- `src/report/product-report.ts` — decision gates/dimension confidence
 - `src/cloud/research-service.ts` — automatic relay policy using resolved URL/intent
-- `src/relay/playwright-adapter.ts` — site-specific read-only extraction improvements as needed
-- `src/relay/merge.ts` — merge title/price identity safely
-- new `netlify/functions/agent-research.mjs` — ChatGPT-oriented endpoint
-- `netlify.toml` — route for `/api/agent/research`
-- `openapi/korea-web-agent-action.yaml` — Custom GPT Action schema
-- tests for every invariant above
+- `src/relay/playwright-adapter.ts` — site-specific read-only extraction refinements
+- `src/relay/merge.ts` — safe title/price merge
+- new `netlify/functions/agent-research.mjs`
+- new `netlify/functions/agent-job.mjs`
+- `netlify.toml` — `/api/agent/research` and `/api/agent/jobs/*`
+- `openapi/korea-web-agent-action.yaml`
+- tests for all invariants
 
-The exact file split may change during implementation if testing reveals a cleaner boundary, but the responsibilities and security constraints above must remain.
+Exact file splits may change if tests reveal a cleaner boundary, but responsibilities/security constraints remain.
 
 ## 21. Non-Goals
 
-Not part of v0.3:
-
-- purchase or checkout automation
-- automatic coupon claiming if it mutates account state
+- purchase/checkout automation
+- account-mutating coupon claims
 - writing reviews/comments/messages
-- scraping or bypassing CAPTCHA
-- exposing a local inbound port
-- uploading browser profiles/cookies
-- building a native mobile app
-- implementing a full first-party adapter for every Korean commerce/community site
-- replacing ChatGPT's natural-language presentation layer with a custom UI
+- CAPTCHA bypass
+- local inbound port exposure
+- browser profile/cookie upload
+- native mobile app
+- first-party adapter for every Korean site
+- replacing ChatGPT's natural-language presentation with a custom UI
 
 ## 22. Completion Criteria
 
 v0.3 is complete only when:
 
-1. All new and existing tests pass.
+1. New and existing tests pass.
 2. Typecheck/build/security audit pass.
 3. Netlify production deploy succeeds.
-4. `/api/agent/research` works without a URL for a concrete product phrase.
-5. The production WideView acceptance query demonstrates correct identity handling, relevant evidence, correct price gating, and automatic relay behavior when available.
-6. The spec-only acceptance query does not trigger relay.
-7. The Custom GPT Action schema validates and can invoke the production backend.
+4. `/api/agent/research` works from a natural-language product phrase without URL.
+5. Production WideView acceptance demonstrates correct identity handling, relevant evidence, correct price gating, and automatic relay when available.
+6. Spec-only acceptance does not trigger relay.
+7. The OpenAPI Action schema validates and invokes production with `KWA_ACTION_API_KEY`.
 8. The user can use the Korea Web Agent GPT without manually visiting the Netlify dashboard for normal product questions.
