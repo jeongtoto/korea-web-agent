@@ -31,8 +31,8 @@ function deps(overrides: Partial<ResearchDependencies> = {}): ResearchDependenci
   return {
     directPage: async () => directResult(),
     publicSearch: async () => [
-      { title: '밀도 원목 수납침대 K 1년 사용 후기', url: 'https://example.com/review', snippet: '밀도 원목 수납침대 K 프레임이 안정적이라는 장기 후기' },
-      { title: '밀도 원목 수납침대 K 조립 후기', url: 'https://www.youtube.com/watch?v=x', snippet: '밀도 원목 수납침대 K 조립성과 소음 확인' },
+      { title: '밀도 원목 수납침대 K 1년 사용 후기', url: 'https://example.com/review/7322162980', snippet: '밀도 원목 수납침대 K 7322162980 프레임이 안정적이라는 장기 후기' },
+      { title: '밀도 원목 수납침대 K 조립 후기', url: 'https://www.youtube.com/watch?v=7322162980', snippet: '밀도 원목 수납침대 K 7322162980 조립성과 소음 확인' },
     ],
     relayClient: null,
     now: () => new Date('2026-08-17T00:00:00.000Z'),
@@ -57,7 +57,7 @@ test('orchestrator combines direct URL evidence with related public search and i
 test('provider failure degrades to a partial result instead of discarding successful evidence', async () => {
   const job = await runResearch({ question: '어때?', url }, deps({
     directPage: async () => { throw new Error('blocked'); },
-    publicSearch: async () => [{ title: '밀도 원목 수납침대 K 사용 후기', url: 'https://example.com/review', snippet: '밀도 수납침대 K 장기 사용 후기' }],
+    publicSearch: async () => [{ title: '밀도 원목 수납침대 K 7322162980 사용 후기', url: 'https://example.com/review/7322162980', snippet: '상품 7322162980 장기 사용 후기' }],
   }));
   assert.equal(job.status, 'partial');
   assert.ok(job.evidence.length >= 1);
@@ -112,7 +112,7 @@ test('orchestrator executes bounded source-specific searches instead of a single
   const job = await runResearch({ question: '이 침대 어때? 논문까지 확인해줘', url }, deps({
     publicSearch: async (query) => {
       queries.push(query);
-      return [{ title: `밀도 원목 수납침대 K 결과 ${queries.length}`, url: `https://example.com/${queries.length}`, snippet: '밀도 원목 수납침대 K 근거 요약' }];
+      return [{ title: `밀도 원목 수납침대 K 7322162980 결과 ${queries.length}`, url: `https://example.com/7322162980/${queries.length}`, snippet: '밀도 원목 수납침대 K 7322162980 근거 요약' }];
     },
   }));
 
