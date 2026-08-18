@@ -31,8 +31,8 @@ function deps(overrides: Partial<ResearchDependencies> = {}): ResearchDependenci
   return {
     directPage: async () => directResult(),
     publicSearch: async () => [
-      { title: '1년 사용 후기', url: 'https://example.com/review', snippet: '프레임이 안정적이라는 장기 후기' },
-      { title: '조립 후기', url: 'https://www.youtube.com/watch?v=x', snippet: '조립성과 소음 확인' },
+      { title: '밀도 원목 수납침대 K 1년 사용 후기', url: 'https://example.com/review', snippet: '밀도 원목 수납침대 K 프레임이 안정적이라는 장기 후기' },
+      { title: '밀도 원목 수납침대 K 조립 후기', url: 'https://www.youtube.com/watch?v=x', snippet: '밀도 원목 수납침대 K 조립성과 소음 확인' },
     ],
     relayClient: null,
     now: () => new Date('2026-08-17T00:00:00.000Z'),
@@ -57,7 +57,7 @@ test('orchestrator combines direct URL evidence with related public search and i
 test('provider failure degrades to a partial result instead of discarding successful evidence', async () => {
   const job = await runResearch({ question: '어때?', url }, deps({
     directPage: async () => { throw new Error('blocked'); },
-    publicSearch: async () => [{ title: '사용 후기', url: 'https://example.com/review', snippet: '장기 사용 후기' }],
+    publicSearch: async () => [{ title: '밀도 원목 수납침대 K 사용 후기', url: 'https://example.com/review', snippet: '밀도 수납침대 K 장기 사용 후기' }],
   }));
   assert.equal(job.status, 'partial');
   assert.ok(job.evidence.length >= 1);
@@ -95,16 +95,28 @@ test('online relay merges only normalized personalized price fields into the rep
   assert.equal(job.report?.personalizedPrice?.shippingEta, '2026-08-20');
 });
 
+test('generic KC pages are not promoted to exact-product evidence by a product-shaped search query', async () => {
+  const job = await runResearch({ question: '이 침대 어때?', url }, deps({
+    publicSearch: async () => [{
+      title: 'KCL 안전인증 KC 생활용품',
+      url: 'https://www.kcl.re.kr/kc',
+      snippet: '제품의 안전성 시험검사와 KC 인증 업무를 수행합니다.',
+    }],
+  }));
+
+  assert.equal(job.evidence.some((item) => item.sourceUrl === 'https://www.kcl.re.kr/kc' && item.specificity === 'exact_product'), false);
+});
+
 test('orchestrator executes bounded source-specific searches instead of a single generic search', async () => {
   const queries: string[] = [];
   const job = await runResearch({ question: '이 침대 어때? 논문까지 확인해줘', url }, deps({
     publicSearch: async (query) => {
       queries.push(query);
-      return [{ title: `결과 ${queries.length}`, url: `https://example.com/${queries.length}`, snippet: '근거 요약' }];
+      return [{ title: `밀도 원목 수납침대 K 결과 ${queries.length}`, url: `https://example.com/${queries.length}`, snippet: '밀도 원목 수납침대 K 근거 요약' }];
     },
   }));
 
-  assert.ok(queries.length >= 10);
+  assert.ok(queries.length >= 9);
   assert.ok(queries.length <= 14);
   assert.ok(queries.some((query) => query.includes('site:blog.naver.com')));
   assert.ok(queries.some((query) => query.includes('site:cafe.naver.com')));
