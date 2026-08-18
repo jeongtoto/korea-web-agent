@@ -81,6 +81,29 @@ function classifySearchHit(hit: SearchHit): EvidenceItem['evidenceClass'] {
   }
 }
 
+function evidenceClassForSearch(source: SourceQuery | undefined, hit: SearchHit): EvidenceItem['evidenceClass'] {
+  if (!source) return classifySearchHit(hit);
+  switch (source.id) {
+    case 'naver-shopping':
+    case 'coupang':
+    case 'danawa':
+      return 'retailer_listing';
+    case 'naver-blog':
+    case 'naver-cafe':
+    case 'reddit':
+    case 'instagram':
+      return 'community_report';
+    case 'youtube':
+    case 'news':
+      return 'editorial_review';
+    case 'official':
+    case 'general':
+      return classifySearchHit(hit);
+    default:
+      return source.evidenceClass;
+  }
+}
+
 function searchHitEvidence(
   hit: SearchHit,
   retrievedAt: string,
@@ -109,7 +132,7 @@ function searchHitEvidence(
     const confidence = match.level === 'exact_product'
       ? 0.45 + (0.2 * match.score)
       : 0.28 + (0.18 * match.score);
-    const evidenceClass = source?.evidenceClass ?? classifySearchHit(hit);
+    const evidenceClass = evidenceClassForSearch(source, hit);
     const signals = match.level === 'exact_product'
       ? deriveExplicitSearchSignals(hit, evidenceClass, target)
       : {};
@@ -123,7 +146,7 @@ function searchHitEvidence(
       independenceKey: `search:${hit.url}`,
       confidence,
       specificity,
-      notes: `Identity match: ${match.level} (${match.score.toFixed(2)}). Search metadata is weaker than direct retrieval; sentiment/price signals are recorded only when explicit wording is present.`,
+      notes: `Identity match: ${match.level} (${match.score.toFixed(2)}). Search metadata is weaker than direct retrieval; source class is derived from the actual result host/source family, and sentiment/price signals are recorded only when explicit wording is present.`,
       data: { identityMatch: match.level, identityMatchScore: match.score, ...signals },
     };
   }
@@ -134,7 +157,7 @@ function searchHitEvidence(
     sourceType: source?.sourceType ?? 'search_result',
     retrievedAt,
     acquisitionMethod: 'search_metadata',
-    evidenceClass: source?.evidenceClass ?? classifySearchHit(hit),
+    evidenceClass: evidenceClassForSearch(source, hit),
     independenceKey: `search:${hit.url}`,
     confidence: hit.snippet ? 0.45 : 0.35,
     specificity: source?.specificity ?? 'category',
