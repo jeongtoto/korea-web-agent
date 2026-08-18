@@ -30,6 +30,7 @@ export const REPORT_DECISIONS = ['BUY', 'WAIT', 'SKIP', 'INSUFFICIENT'] as const
 export type ReportDecision = (typeof REPORT_DECISIONS)[number];
 
 export type ProductSpecificity = 'exact_product' | 'category' | 'general_mechanism';
+export type ProductMatchLevel = 'exact_product' | 'probable_product' | 'category' | 'general_mechanism' | 'unrelated';
 
 export interface ResearchIntent {
   productResearch: boolean;
@@ -64,6 +65,28 @@ export interface NormalizedTarget {
   productId?: string;
   sourceHost?: string;
   canonicalUrl?: string;
+}
+
+export interface ProductMatchResult {
+  level: ProductMatchLevel;
+  score: number;
+  matchedTokens: string[];
+  missingTokens: string[];
+}
+
+export interface ProductCandidate {
+  target: NormalizedTarget;
+  score: number;
+  sourceUrls: string[];
+  title: string;
+}
+
+export interface ProductResolution {
+  target: NormalizedTarget;
+  confidence: number;
+  ambiguous: boolean;
+  candidates: ProductCandidate[];
+  identityEvidence: Array<{ title: string; url: string; score: number }>;
 }
 
 export interface ResearchRequest {
