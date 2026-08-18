@@ -107,6 +107,22 @@ test('generic KC pages are not promoted to exact-product evidence by a product-s
   assert.equal(job.evidence.some((item) => item.sourceUrl === 'https://www.kcl.re.kr/kc' && item.specificity === 'exact_product'), false);
 });
 
+test('an unofficial exact-product page returned by the official query is not labeled as an official record', async () => {
+  const blogUrl = 'https://blog.naver.com/reviewer/mildo-7322162980-spec';
+  const job = await runResearch({ question: '이 침대 어때?', url }, deps({
+    publicSearch: async (query) => query.includes('공식 스펙 보증 AS 인증') ? [{
+      title: '밀도 원목 수납침대 K 7322162980 스펙 정리',
+      url: blogUrl,
+      snippet: '밀도 원목 수납침대 K 7322162980 개인 사용자가 정리한 스펙',
+    }] : [],
+  }));
+
+  const item = job.evidence.find((entry) => entry.sourceUrl === blogUrl);
+  assert.ok(item);
+  assert.notEqual(item?.evidenceClass, 'official_record');
+  assert.notEqual(item?.evidenceClass, 'accredited_test');
+});
+
 test('exact-product snippets structure only explicit review sentiment, current price, and price-value wording', async () => {
   const job = await runResearch({ question: '이 침대 지금 가격이면 살만해?', url }, deps({
     publicSearch: async (query) => {
