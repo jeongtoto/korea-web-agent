@@ -31,6 +31,14 @@ export type ReportDecision = (typeof REPORT_DECISIONS)[number];
 
 export type ProductSpecificity = 'exact_product' | 'category' | 'general_mechanism';
 
+export interface ResearchIntent {
+  productResearch: boolean;
+  purchaseDecision: boolean;
+  priceSensitive: boolean;
+  personalizedPriceUseful: boolean;
+  specOnly: boolean;
+}
+
 export interface EvidenceItem {
   claim: string;
   sourceUrl: string;
