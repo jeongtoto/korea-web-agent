@@ -89,6 +89,13 @@ export interface ProductResolution {
   identityEvidence: Array<{ title: string; url: string; score: number }>;
 }
 
+export interface ResearchContext {
+  intent?: ResearchIntent;
+  identityConfidence?: number;
+  resolvedTarget?: NormalizedTarget;
+  resolutionAmbiguous?: boolean;
+}
+
 export interface ResearchRequest {
   question: string;
   url?: string;
@@ -162,6 +169,7 @@ export interface ResearchJob {
   updatedAt: string;
   completedAt?: string;
   target: NormalizedTarget;
+  researchContext?: ResearchContext;
   sourceResults: ResearchSourceResult[];
   evidence: EvidenceItem[];
   relay: RelayStatus;
