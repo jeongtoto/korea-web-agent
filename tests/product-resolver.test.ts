@@ -35,6 +35,30 @@ test('resolves a query-only product when independent results agree on brand mode
   assert.ok(result.target.canonicalUrl);
 });
 
+test('prefers a relay-eligible commerce product URL even when a matching blog result appears first', async () => {
+  const result = await resolveProduct({
+    question: '와이드뷰 43인치 4K V3 스탠드 어때?',
+    category: 'product',
+  }, {
+    publicSearch: async () => [
+      {
+        title: '와이드뷰 V3 43인치 UHD 4K 이동식 TV 후기',
+        url: 'https://blog.naver.com/reviewer/223000000000',
+        snippet: '와이드뷰 V3 43인치 실사용 후기',
+      },
+      {
+        title: '와이드뷰 43인치 4K V3 이동식 스마트TV 스탠드',
+        url: 'https://brand.naver.com/widevu/products/11458011168',
+        snippet: '와이드뷰 V3 43인치 UHD 4K 스탠드',
+      },
+    ],
+  });
+
+  assert.equal(result.ambiguous, false);
+  assert.equal(result.target.canonicalUrl, 'https://brand.naver.com/widevu/products/11458011168');
+  assert.equal(result.target.productId, '11458011168');
+});
+
 test('enriches a Shopping Live URL product id with discovery identity instead of stopping at an unnamed product', async () => {
   const shoppingLiveUrl = 'https://product.shoppinglive.naver.com/products/11458011168?prdFrom=checkout';
   const queries: string[] = [];
