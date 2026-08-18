@@ -1,28 +1,58 @@
-# Korea Web Agent v1
+# Korea Web Agent v0.3
 
-Korea Web Agent is a mobile-first research system for Korean shopping and everyday web research. It accepts a URL plus a natural-language question, gathers attributable public evidence, and can optionally ask a locally authenticated PC browser for personalized price/delivery fields without uploading browser cookies or credentials.
+Korea Web Agent is a read-only Korean product-research backend designed to be called from a dedicated Custom GPT. The primary experience is now natural-language product research inside ChatGPT; the existing PWA remains available as a diagnostic/manual testing surface.
 
-## What v1 does
+Example:
 
-- PWA dashboard for phone and desktop.
-- Naver Brand Store / SmartStore product URL identification.
-- Direct page metadata + JSON-LD product/offer extraction.
-- Bounded source plan that deliberately searches Naver Shopping/Blog/Cafe, Coupang, Danawa, YouTube, Reddit, news, official sources, and general web results.
-- Keyless public web-search fallback through DuckDuckGo HTML results.
-- Dedicated Crossref DOI metadata search for relevant peer-reviewed research.
-- Evidence classes, duplicate independence keys, and confidence weighting.
-- Product report schema with `BUY / WAIT / SKIP / INSUFFICIENT` decisions.
-- Public-only fallback when the PC relay is unavailable.
-- Read-only authenticated browser extraction for Naver/Coupang allowlisted domains.
-- Signed HMAC relay jobs with expiry and nonce validation.
-- Outbound PC connector: the PC polls the cloud, so there is no router port-forwarding or inbound PC port.
-- PWA relay status indicator.
+```text
+와이드뷰 43인치 4K V3 스탠드 어때?
+```
+
+The agent resolves the product, gathers attributable public evidence, evaluates current price/reviews/specifications, and conditionally asks a locally authenticated PC browser for personalized Naver/Coupang price, coupon, points, shipping, and availability fields. It returns a conservative `BUY / WAIT / SKIP / INSUFFICIENT` result.
+
+## v0.3 behavior
+
+- Natural-language product resolution without requiring a URL.
+- Naver Brand Store, SmartStore, mobile SmartStore, and Naver Shopping Live product URL parsing.
+- Product identity matching before search evidence is allowed to count as exact-product evidence.
+- Generic KC/safety pages and general papers cannot masquerade as proof of a specific product.
+- Academic evidence is requested only when the question actually benefits from research on health, ergonomics, materials, safety, or mechanisms.
+- Confidence is based on evidence coverage dimensions rather than accumulating arbitrary snippets toward 97%.
+- Price-sensitive purchase questions require usable price evidence before `BUY` or `WAIT` is allowed.
+- `WAIT` is a supported price/timing conclusion, not a fallback for uncertainty.
+- Purchase-oriented phrases such as `어때?`, `살만해?`, `지금 사?`, `최저가?`, `쿠폰?`, `특가?` make authenticated pricing useful automatically.
+- Specification-only questions such as `패널 스펙 알려줘` do not launch the PC browser.
+- The authenticated relay remains read-only and outbound-only from the PC.
+- ChatGPT Action routes use a separate API credential from the PC relay.
+
+## Architecture
+
+```text
+Custom GPT
+   |
+   | Bearer KWA_ACTION_API_KEY
+   v
+Netlify /api/agent/*
+   |
+   +--> product resolver -> public research -> evidence matcher -> report
+   |
+   +--> when purchase/price intent requires it
+           |
+           v
+       persistent relay queue
+           ^
+           | outbound HTTPS polling with KWA_RELAY_SECRET
+           |
+       user's PC connector -> dedicated logged-in Chrome profile
+```
+
+Netlify is a backend. Users do not need to open the Netlify dashboard/PWA for normal Custom GPT use.
 
 ## Security boundary
 
-The local browser profile is high trust. v1 intentionally does **not** support purchasing, payment, order cancellation, address/account changes, posting reviews/comments, or arbitrary JavaScript supplied by remote pages.
+The local authenticated browser profile is high trust. The project intentionally does **not** support purchasing, payment, order cancellation, address/account changes, posting reviews/comments, sending messages, or arbitrary JavaScript supplied by remote pages.
 
-The following data must remain on the PC:
+The following must remain on the PC:
 
 - passwords
 - raw cookies
@@ -30,176 +60,213 @@ The following data must remain on the PC:
 - localStorage/sessionStorage
 - browser profile files
 
-Cloud payloads contain only signed read-only jobs and normalized extracted values such as price, points, and delivery estimate. Relay outputs are recursively rejected when secret-bearing key names are detected.
+Cloud relay payloads contain only signed, expiring read-only jobs and normalized extracted values. Relay output recursively rejects secret-bearing key names. CAPTCHA and step-up/MFA authentication are never bypassed.
 
-CAPTCHA and step-up authentication are never bypassed.
+Two different secrets are used:
+
+```text
+KWA_RELAY_SECRET       PC connector <-> Netlify relay only
+KWA_ACTION_API_KEY     Custom GPT Action <-> /api/agent/* only
+```
+
+Never reuse one secret as the other. Never commit either value to GitHub or paste them into chat/logs/screenshots.
 
 ## Requirements
 
 - Node.js 22+
 - TypeScript 5.8+ for builds
 - Chromium/Chrome on the PC for authenticated browsing
-- `playwright-core` installed on the PC when the authenticated connector is enabled
+- `playwright-core` installed locally when the PC connector is enabled
 
-## Run public-only mode
+## PC connector
 
-```bash
-npm install
-npm test
-npm run build
-HOST=127.0.0.1 PORT=8787 npm start
-```
+Use a dedicated browser profile such as `$HOME\.kwa-profile`, never the ordinary daily Chrome profile. Log in to Naver/Coupang directly in that dedicated browser.
 
-Open `http://127.0.0.1:8787`.
-
-Public-only mode is useful even without any browser login. If an individual site blocks server-side fetching, the job degrades to other public sources and records the failed source.
-
-## Enable phone -> cloud -> logged-in PC research
-
-### 1. Generate a relay secret
-
-Use a password manager or cryptographically random generator. Use the same value on the cloud server and PC connector. Do not paste it into source code, GitHub, screenshots, or chat.
-
-Cloud environment:
-
-```bash
-KWA_RELAY_SECRET=<long-random-secret>
-HOST=0.0.0.0
-PORT=8787
-```
-
-The server exposes authenticated relay polling/result endpoints. The PWA itself never receives the relay secret.
-
-### 2. Prepare the PC connector
-
-On the user's PC:
-
-```bash
-npm install
-npm install playwright-core
-```
-
-Use a **dedicated** profile directory. Do not point the agent at the user's ordinary Chrome profile.
-
-PowerShell example (preferred, secret is entered as a secure prompt):
+After cloning/updating the repository:
 
 ```powershell
-$secret = Read-Host "Relay secret" -AsSecureString
-.\scripts\start-connector.ps1 -CloudUrl "https://your-agent.example" -RelaySecret $secret
+cd "$HOME\korea-web-agent"
+npm ci
+npm install --no-save playwright-core
+
+$Chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+$secret = Read-Host "Netlify Relay Secret" -AsSecureString
+
+.\scripts\start-connector.ps1 `
+    -CloudUrl "https://korea-web-agent.netlify.app" `
+    -RelaySecret $secret `
+    -ChromePath $Chrome
 ```
 
-Manual environment-variable mode is also supported when needed.
-
-The first authenticated-browser run opens the dedicated profile. The user logs in to Naver/Coupang directly in that browser. The project never stores the account password itself.
-
-The connector then repeatedly makes outbound HTTPS requests:
+The connector repeatedly makes outbound HTTPS requests:
 
 ```text
-PC connector -> POST /api/relay/poll
-cloud broker -> signed read-only job
-PC -> local browser extraction
-PC connector -> POST /api/relay/result
+PC -> POST /api/relay/poll
+cloud -> signed read-only job
+PC -> dedicated browser extraction
+PC -> POST /api/relay/result
 ```
 
-No PC port needs to be exposed to the internet.
+No inbound PC port or router port forwarding is required. When no relay job exists, the connector stays quiet and continues polling.
 
-### 3. Use from the phone
+Relay status:
 
-Open the PWA, paste a Naver product URL, enter a question, and enable:
-
-> 내 PC 로그인 세션의 개인화 가격/배송도 확인
-
-When the connector is running, the header shows `PC RELAY ONLINE`. If the PC is off, the same request continues in public-only mode.
-
-## Local-only relay server
-
-For development or same-machine integration, a loopback relay is also available:
-
-```bash
-KWA_RELAY_SECRET=<secret> \
-KWA_PROFILE_DIR=.kwa-profile \
-CHROMIUM_PATH=/usr/bin/chromium \
-npm run relay
+```text
+GET /api/relay/status
 ```
 
-It binds to `127.0.0.1` by default and should not be published to the internet.
+`online:true` means the cloud has seen the connector recently.
 
-## API
+## ChatGPT Action API
 
-### Health
+The primary ChatGPT endpoint is:
 
-`GET /api/health`
+```text
+POST /api/agent/research
+Authorization: Bearer <KWA_ACTION_API_KEY>
+Content-Type: application/json
+```
 
-### Research
-
-`POST /api/research`
+Query-only request:
 
 ```json
 {
-  "url": "https://brand.naver.com/mildo/products/7322162980",
-  "question": "이 침대 어때? 지금 가격이면 살만해?",
-  "includeLocalRelay": true,
-  "category": "auto"
+  "query": "와이드뷰 43인치 4K V3 스탠드 어때?"
 }
 ```
 
-### Relay status
+Optional URL request:
 
-`GET /api/relay/status`
+```json
+{
+  "query": "이 제품 지금 사도 돼?",
+  "url": "https://product.shoppinglive.naver.com/products/11458011168"
+}
+```
 
-The following endpoints are for the PC connector and require the relay bearer secret:
+If the authenticated PC result is still pending, the response uses `status: "running"`, returns a `jobId`, and supplies a `pollUrl`.
+
+Status endpoint:
+
+```text
+GET /api/agent/jobs/<job-id>
+Authorization: Bearer <KWA_ACTION_API_KEY>
+```
+
+The final compact response includes resolved product identity, identity confidence/ambiguity, decision/confidence dimensions, public and personalized prices, relay status, key reasons, strengths/weaknesses, missing information, evidence summaries/source URLs, source coverage, and safe errors.
+
+The legacy endpoints remain for PWA/debug compatibility:
+
+- `POST /api/research`
+- `GET /api/jobs/*`
+
+PC-only authenticated relay endpoints remain separate:
 
 - `POST /api/relay/poll`
 - `POST /api/relay/result`
 
-## Deployment
+## Custom GPT setup
 
-### Netlify (recommended for the PWA)
-
-The repository includes `netlify.toml` and Netlify Functions. Research jobs and outbound relay state use Netlify Blobs with strong consistency, so phone requests and PC polling do not depend on the same serverless instance.
-
-Set one secret environment variable in Netlify:
+Action schema:
 
 ```text
-KWA_RELAY_SECRET=<cryptographically-random-secret>
+openapi/korea-web-agent-action.yaml
 ```
 
-After adding or changing `KWA_RELAY_SECRET`, trigger a fresh production deploy so the Netlify Functions receive the updated secret.
+The schema defines:
 
-The same secret is entered locally on the PC connector. Raw cookies, passwords, localStorage and browser-profile files never enter Netlify.
+- `startProductResearch` -> `POST /api/agent/research`
+- `getProductResearchResult` -> `GET /api/agent/jobs/{id}`
+- HTTP bearer authentication
 
-Build command: `npm run build`  \
-Publish directory: `public`  \
-Functions directory: `netlify/functions`
+In the Custom GPT Action configuration, use the separate `KWA_ACTION_API_KEY` as the bearer/API key credential. Keep the GPT private (`Only me`) for a personal deployment.
 
-### Stateful container alternative
+Recommended GPT behavior:
 
-The original Node server can also run as one persistent process behind HTTPS:
+- Call `startProductResearch` for a concrete product when the user asks whether it is good, worth buying, currently cheap, a good value, or asks for review/price synthesis.
+- Also call it for exact product specification research when public evidence is needed.
+- If the result is `running`, call `getProductResearchResult` using `jobId` until a terminal state is returned within a bounded number of retries.
+- Treat `INSUFFICIENT` as a valid outcome; do not invent a BUY/WAIT decision.
+- Do not call the Action for unrelated casual questions.
 
-```bash
-docker build -t korea-web-agent .
-docker run --rm -p 8787:8787 \
-  -e KWA_RELAY_SECRET='<secret>' \
-  korea-web-agent
+## Netlify deployment
+
+The repository contains `netlify.toml` and Netlify Functions. Research job and relay state use Netlify Blobs with strong consistency.
+
+Production environment variables:
+
+```text
+KWA_RELAY_SECRET=<cryptographically-random relay secret>
+KWA_ACTION_API_KEY=<different cryptographically-random Action API key>
 ```
 
-## Current v1 limitations
+After adding/changing either secret, trigger a fresh production deploy so Netlify Functions receive the updated environment.
 
-This is the safe foundation, not yet the final “search every Korean source perfectly” layer.
+Build configuration:
 
-- Naver/Coupang authenticated extraction currently uses deterministic generic selectors. Site-specific adapters should be refined against real pages as their DOM changes.
-- Naver Shopping/Blog/Cafe, Coupang, Danawa, YouTube, Reddit, news and official sites are deliberately queried through the source plan, but most still rely on search-result metadata rather than first-party APIs. Crossref is the first dedicated academic provider.
-- Kakao Map, Naver Place, Instagram and richer YouTube/Naver APIs remain future adapters.
-- Public search providers can be rate-limited or blocked; v2 should add official APIs and multiple search providers.
-- Evidence sentiment/price signals are deterministic first-pass heuristics. A later reasoning layer can classify themes and compare alternatives while preserving the same provenance model.
-- The direct HTTP fetch guard rejects literal private/local destinations and unsafe redirects, but production infrastructure should additionally enforce egress/network-level SSRF controls.
+```text
+Build command: npm run build
+Publish directory: public
+Functions directory: netlify/functions
+```
 
-## Development
+The public PWA at the site root remains a diagnostic interface. Its manual relay checkbox is retained for backward-compatible testing; ChatGPT `/api/agent/*` determines relay use automatically from intent.
+
+## Decision/confidence policy
+
+The product report tracks independent confidence dimensions including:
+
+- exact product identity
+- usable current price
+- official/spec evidence
+- direct review evidence
+- negative-signal coverage
+- authenticated personalized-price coverage
+
+Important invariants:
+
+- unresolved/ambiguous identity -> `INSUFFICIENT`
+- purchase-timing question without usable price -> not `BUY`/`WAIT`
+- `WAIT` requires a usable price plus supported unattractive price/timing evidence
+- general scientific evidence cannot establish exact-product confidence
+- unrelated search results are excluded
+- duplicate/syndicated evidence is not counted repeatedly
+- many weak snippets cannot replace a missing required evidence dimension
+
+## Source acquisition
+
+The public research layer can query, when relevant:
+
+- manufacturer/distributor pages
+- Naver Shopping / Brand Store / SmartStore
+- Coupang
+- Danawa
+- Naver Blog / Cafe
+- YouTube
+- Reddit/public communities
+- news/recall sources
+- official/certification sources
+- peer-reviewed research when the question calls for it
+
+Most Korean source families currently use public search metadata unless a direct page/structured-data or dedicated provider path succeeds. Direct sites may rate-limit server-side requests; the engine records blocked sources and degrades to other evidence instead of fabricating fields.
+
+## Current v0.3 limitations
+
+- The resolver is deterministic and conservative. Ambiguous products may require a model code or URL.
+- Search-result metadata remains weaker than directly retrieved product/review pages.
+- Site DOMs change; Naver/Coupang authenticated selectors include site-aware deterministic groups plus fallbacks, but they may require maintenance.
+- Historical price tracking is not yet a durable price database. The engine can use discoverable price/discount signals but does not promise complete all-time-low history.
+- Alternatives are not yet a dedicated recommendation subsystem; source evidence may expose them, but v0.3 prioritizes exact-product correctness first.
+- One persistent relay job is active at a time in the current serverless relay design.
+
+## Development and verification
 
 ```bash
+npm ci
 npm test
 npm run typecheck
 npm run build
+npm audit --omit=dev --audit-level=high
 ```
 
-The test suite covers URL safety, evidence deduplication/scoring, Naver URL parsing, public extraction, report synthesis, relay signatures, secret-output rejection, broker/connector flow, API endpoints, and offline fallback.
+Tests cover URL safety, Shopping Live parsing, intent classification, query-only product resolution, ambiguity, exact-product matching, generic-evidence rejection, source planning, conservative search signals, price-gated decisions, confidence anti-inflation, relay signatures/sanitization, site-aware authenticated extraction, async relay merge, Action API contract/authentication, and deterministic WideView end-to-end acceptance.
