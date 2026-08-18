@@ -122,12 +122,24 @@ export interface PriceSnapshot {
   estimatedPoints?: number;
   shippingFee?: number;
   shippingEta?: string;
+  selectedOption?: string;
+  availability?: string;
   sourceUrl?: string;
+}
+
+export interface ProductConfidenceDimensions {
+  identity: number;
+  price: number;
+  officialSpecs: number;
+  reviews: number;
+  negativeSignals: number;
+  personalizedPrice: number;
 }
 
 export interface ProductReport {
   decision: ReportDecision;
   confidence: number;
+  confidenceDimensions: ProductConfidenceDimensions;
   title: string;
   summary: string;
   reasons: string[];
