@@ -6,7 +6,7 @@ export interface BrowserDriver {
   close(): Promise<void>;
 }
 
-const FIELD_SELECTORS: Record<string, readonly string[]> = {
+const GENERIC_FIELD_SELECTORS: Record<string, readonly string[]> = {
   title: ['h1', '[class*="product_title"]', '[class*="ProductTitle"]'],
   price: ['[class*="price"]', '[class*="Price"]', '[data-testid*="price"]'],
   couponPrice: ['[class*="coupon"] [class*="price"]', '[class*="Coupon"] [class*="Price"]', '[class*="benefit"] [class*="price"]'],
@@ -17,6 +17,46 @@ const FIELD_SELECTORS: Record<string, readonly string[]> = {
   selectedOption: ['[class*="option"] [class*="selected"]', '[class*="Option"] [aria-selected="true"]'],
   availability: ['[class*="stock"]', '[class*="availability"]', '[class*="soldout"]'],
 };
+
+type SiteSelectorMap = Partial<Record<string, readonly string[]>>;
+
+const NAVER_COMMERCE_SELECTORS: SiteSelectorMap = {
+  title: ['[class*="ProductTitle"]', '[class*="product_title"]', 'h1'],
+  price: ['[class*="ProductPrice"]', '[class*="price"]', '[class*="Price"]'],
+  couponPrice: ['[class*="CouponPrice"]', '[class*="coupon"] [class*="price"]', '[class*="benefit"] [class*="price"]'],
+  membershipPrice: ['[class*="MembershipPrice"]', '[class*="membership"] [class*="price"]', '[class*="member"] [class*="price"]'],
+  estimatedPoints: ['[class*="RewardPoint"]', '[class*="point"]', '[class*="reward"]'],
+  shippingFee: ['[class*="ShippingFee"]', '[class*="shipping"] [class*="fee"]', '[class*="delivery"] [class*="fee"]'],
+  shippingEta: ['[class*="ShippingEta"]', '[class*="shipping"]', '[class*="delivery"]'],
+  selectedOption: ['[class*="SelectedOption"]', '[class*="option"] [class*="selected"]'],
+  availability: ['[class*="Availability"]', '[class*="availability"]', '[class*="stock"]', '[class*="soldout"]'],
+};
+
+const COUPANG_SELECTORS: SiteSelectorMap = {
+  title: ['h1', '[class*="prod-buy-header__title"]', '[class*="ProductTitle"]'],
+  price: ['[class*="total-price"]', '[class*="sale-price"]', '[class*="Price"]'],
+  couponPrice: ['[class*="coupon-price"]', '[class*="CouponPrice"]'],
+  membershipPrice: ['[class*="wow-price"]', '[class*="member-price"]', '[class*="MembershipPrice"]'],
+  estimatedPoints: ['[class*="cash-benefit"]', '[class*="reward"]', '[class*="RewardPoint"]'],
+  shippingFee: ['[class*="shipping-fee"]', '[class*="delivery-fee"]', '[class*="ShippingFee"]'],
+  shippingEta: ['[class*="delivery-date"]', '[class*="delivery"]', '[class*="ShippingEta"]'],
+  selectedOption: ['[class*="option"] [class*="selected"]', '[class*="SelectedOption"]'],
+  availability: ['[class*="out-of-stock"]', '[class*="stock"]', '[class*="Availability"]'],
+};
+
+function siteSelectors(hostname: string): SiteSelectorMap | undefined {
+  if (hostname === 'naver.com' || hostname.endsWith('.naver.com')) return NAVER_COMMERCE_SELECTORS;
+  if (hostname === 'coupang.com' || hostname.endsWith('.coupang.com')) return COUPANG_SELECTORS;
+  return undefined;
+}
+
+function selectorsFor(url: string, field: string): readonly string[] {
+  let hostname = '';
+  try { hostname = new URL(url).hostname.toLowerCase(); } catch { /* validateRelayRequest already rejects malformed URLs */ }
+  const specific = siteSelectors(hostname)?.[field] ?? [];
+  const generic = GENERIC_FIELD_SELECTORS[field] ?? [];
+  return [...new Set([...specific, ...generic])];
+}
 
 function parseKrw(text: string | null): number | undefined {
   if (!text) return undefined;
@@ -37,8 +77,8 @@ export async function extractAuthenticatedFields(job: UnsignedRelayJob, driver: 
 
   const output: Record<string, unknown> = {};
   for (const field of job.requestedFields) {
-    const selectors = FIELD_SELECTORS[field];
-    if (!selectors) throw new Error(`No read-only extractor for field: ${field}`);
+    const selectors = selectorsFor(job.url, field);
+    if (!selectors.length) throw new Error(`No read-only extractor for field: ${field}`);
     const raw = await driver.readText(selectors);
     if (['price', 'couponPrice', 'membershipPrice', 'estimatedPoints', 'shippingFee'].includes(field)) {
       const value = parseKrw(raw);
