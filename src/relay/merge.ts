@@ -125,6 +125,8 @@ export function applyPersonalizedRelayResult(job: ResearchJob, rawResult: unknow
     target,
     evidence,
     ...(usefulCommerce ? { personalizedPrice: price } : {}),
+    ...(job.researchContext?.intent ? { intent: job.researchContext.intent } : {}),
+    ...(job.researchContext?.identityConfidence !== undefined ? { identityConfidence: job.researchContext.identityConfidence } : {}),
   });
 
   return {
@@ -133,6 +135,7 @@ export function applyPersonalizedRelayResult(job: ResearchJob, rawResult: unknow
     updatedAt: completedAt,
     completedAt,
     target,
+    ...(job.researchContext ? { researchContext: { ...job.researchContext, resolvedTarget: { ...target } } } : {}),
     evidence,
     sourceResults,
     relay,
