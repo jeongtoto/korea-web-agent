@@ -33,7 +33,7 @@ function extractModel(value: string): string | undefined {
 }
 
 function extractVariant(value: string): string | undefined {
-  const match = value.match(/\b(\d+(?:\.\d+)?)\s*(인치|inch|형|gb|tb)\b/i);
+  const match = value.match(/(\d+(?:\.\d+)?)\s*(인치|inch|형|gb|tb)/i);
   if (!match) return undefined;
   const unit = match[2]!.toLowerCase() === 'inch' ? '인치' : match[2]!.toLowerCase();
   return `${match[1]}${unit}`;
