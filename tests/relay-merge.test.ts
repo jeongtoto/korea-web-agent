@@ -19,7 +19,7 @@ function baseJob(): ResearchJob {
       },
       {
         claim: '장기 사용 후기', sourceUrl: 'https://example.com/review', sourceType: 'review', retrievedAt: '2026-08-17T00:00:01.000Z',
-        acquisitionMethod: 'search_metadata', evidenceClass: 'community_report', independenceKey: 'public-2', confidence: 0.6, specificity: 'exact_product',
+        acquisitionMethod: 'search_metadata', evidenceClass: 'community_report', independenceKey: 'public-2', confidence: 0.6, specificity: 'exact_product', data: { sentiment: 0.5 },
       },
     ],
     relay: { available: true, used: false, mode: 'public_only', message: 'waiting' },
@@ -29,6 +29,7 @@ function baseJob(): ResearchJob {
 
 test('applyPersonalizedRelayResult merges only normalized price and delivery fields and rebuilds report', () => {
   const merged = applyPersonalizedRelayResult(baseJob(), {
+    title: '밀도 원목 수납침대 K',
     membershipPrice: 419000,
     couponPrice: 429000,
     estimatedPoints: 12000,
@@ -38,10 +39,23 @@ test('applyPersonalizedRelayResult merges only normalized price and delivery fie
   assert.equal(merged.status, 'completed');
   assert.equal(merged.relay.used, true);
   assert.equal(merged.relay.mode, 'local_authenticated');
+  assert.equal(merged.target.name, '밀도 원목 수납침대 K');
   assert.equal(merged.report?.personalizedPrice?.membershipPrice, 419000);
   assert.equal(merged.report?.personalizedPrice?.estimatedPoints, 12000);
   assert.equal(merged.report?.personalizedPrice?.shippingEta, '2026-08-20');
+  assert.ok((merged.report?.confidenceDimensions.identity ?? 0) >= 0.9);
   assert.ok(merged.evidence.some((item) => item.acquisitionMethod === 'local_relay'));
+});
+
+test('relay title can improve identity without fabricating personalized price coverage', () => {
+  const merged = applyPersonalizedRelayResult(baseJob(), {
+    title: '밀도 원목 수납침대 K',
+    currency: 'KRW',
+  }, '2026-08-17T00:00:10.000Z');
+
+  assert.equal(merged.target.name, '밀도 원목 수납침대 K');
+  assert.equal(merged.report?.confidenceDimensions.personalizedPrice, 0);
+  assert.equal(merged.report?.personalizedPrice?.salePrice, undefined);
 });
 
 test('applyPersonalizedRelayResult rejects secret-bearing connector payloads', () => {
