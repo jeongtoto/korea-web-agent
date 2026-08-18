@@ -107,6 +107,31 @@ test('generic KC pages are not promoted to exact-product evidence by a product-s
   assert.equal(job.evidence.some((item) => item.sourceUrl === 'https://www.kcl.re.kr/kc' && item.specificity === 'exact_product'), false);
 });
 
+test('exact-product snippets structure only explicit review sentiment, current price, and price-value wording', async () => {
+  const job = await runResearch({ question: '이 침대 지금 가격이면 살만해?', url }, deps({
+    publicSearch: async (query) => {
+      if (query.includes('site:blog.naver.com')) return [{
+        title: '밀도 원목 수납침대 K 7322162980 장기 사용 만족 추천',
+        url: 'https://blog.naver.com/reviewer/positive-7322162980',
+        snippet: '1년 사용 후에도 튼튼하고 안정적이라 만족한다는 후기',
+      }];
+      if (query.includes('site:danawa.com')) return [{
+        title: '밀도 원목 수납침대 K 7322162980 399,000원 특가',
+        url: 'https://prod.danawa.com/7322162980',
+        snippet: '현재 399,000원 할인 특가 가격',
+      }];
+      return [];
+    },
+  }));
+
+  const review = job.evidence.find((item) => item.sourceUrl.includes('positive-7322162980'));
+  const price = job.evidence.find((item) => item.sourceUrl.includes('danawa.com'));
+  assert.ok((review?.data?.sentiment as number | undefined) !== undefined);
+  assert.ok((review?.data?.sentiment as number) > 0.3);
+  assert.equal(((price?.data?.product as any)?.offers?.price), 399000);
+  assert.ok((price?.data?.priceSignal as number) > 0);
+});
+
 test('orchestrator executes bounded source-specific searches instead of a single generic search', async () => {
   const queries: string[] = [];
   const job = await runResearch({ question: '이 침대 어때? 논문까지 확인해줘', url }, deps({
