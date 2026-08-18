@@ -52,26 +52,25 @@ function titleFor(target: NormalizedTarget, evidence: EvidenceItem[]): string {
 }
 
 function derivePublicPrice(evidence: EvidenceItem[]): PriceSnapshot | undefined {
-  const candidates = evidence
-    .filter((item) => item.specificity === 'exact_product')
-    .map((item) => {
-      const product = item.data?.product;
-      if (!product || typeof product !== 'object') return null;
-      const offers = (product as Record<string, unknown>).offers;
-      if (!offers || typeof offers !== 'object') return null;
-      const offer = offers as Record<string, unknown>;
-      const price = offer.price ?? offer.salePrice ?? offer.lowPrice;
-      if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) return null;
-      const currency = typeof offer.currency === 'string'
-        ? offer.currency
-        : typeof offer.priceCurrency === 'string'
-          ? offer.priceCurrency
-          : 'KRW';
-      return { confidence: item.confidence, price: { currency, salePrice: price, sourceUrl: item.sourceUrl } satisfies PriceSnapshot };
-    })
-    .filter((entry): entry is { confidence: number; price: PriceSnapshot } => entry !== null)
-    .sort((a, b) => b.confidence - a.confidence);
-  return candidates[0]?.price;
+  let best: { confidence: number; price: PriceSnapshot } | undefined;
+  for (const item of evidence) {
+    if (item.specificity !== 'exact_product') continue;
+    const product = item.data?.product;
+    if (!product || typeof product !== 'object') continue;
+    const offers = (product as Record<string, unknown>).offers;
+    if (!offers || typeof offers !== 'object') continue;
+    const offer = offers as Record<string, unknown>;
+    const rawPrice = offer.price ?? offer.salePrice ?? offer.lowPrice;
+    if (typeof rawPrice !== 'number' || !Number.isFinite(rawPrice) || rawPrice <= 0) continue;
+    const currency = typeof offer.currency === 'string'
+      ? offer.currency
+      : typeof offer.priceCurrency === 'string'
+        ? offer.priceCurrency
+        : 'KRW';
+    const price: PriceSnapshot = { currency, salePrice: rawPrice, sourceUrl: item.sourceUrl };
+    if (!best || item.confidence > best.confidence) best = { confidence: item.confidence, price };
+  }
+  return best?.price;
 }
 
 function hasUsablePrice(price: PriceSnapshot | undefined): boolean {
