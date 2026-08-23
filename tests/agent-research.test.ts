@@ -73,7 +73,7 @@ test('query-only purchase evaluation resolves the product and automatically requ
 
   assert.equal(result.status, 'running');
   assert.equal(result.jobId, 'agent-job-1');
-  assert.equal(result.pollUrl, '/api/agent/jobs/agent-job-1');
+  assert.equal(result.pollUrl, '/api/agent/job?jobId=agent-job-1');
   assert.equal(result.product.ambiguous, false);
   assert.equal(result.relay.requested, true);
 });
