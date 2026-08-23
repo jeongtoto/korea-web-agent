@@ -197,7 +197,10 @@ async function enrichParsedProduct(
   const target: NormalizedTarget = {
     ...matching.target,
     kind: 'product',
-    ...(parsed.brand && !matching.target.brand ? { brand: parsed.brand } : {}),
+    ...(parsed.brand ? { brand: parsed.brand } : {}),
+    ...(parsed.name ? { name: parsed.name } : {}),
+    ...(parsed.model ? { model: parsed.model } : {}),
+    ...(parsed.variant ? { variant: parsed.variant } : {}),
     ...(parsed.productId ? { productId: parsed.productId } : {}),
     ...(parsed.liveId ? { liveId: parsed.liveId } : {}),
     ...(parsed.sourceHost ? { sourceHost: parsed.sourceHost } : {}),
@@ -219,7 +222,15 @@ export async function resolveProduct(
 ): Promise<ProductResolution> {
   if (request.url) {
     const parsed = parseNaverProductUrl(request.url);
-    if (parsed) return enrichParsedProduct(parsed, request, deps);
+    if (parsed) {
+      const requestedIdentity = querySeed(request.question);
+      return enrichParsedProduct({
+        ...requestedIdentity,
+        ...parsed,
+        kind: 'product',
+        ...(requestedIdentity.name ? { name: requestedIdentity.name } : {}),
+      }, request, deps);
+    }
   }
 
   const query = cleanQuestion(request.question);
