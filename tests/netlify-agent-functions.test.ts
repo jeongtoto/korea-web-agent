@@ -18,6 +18,12 @@ test('Netlify publishes start and direct query-based status functions for ChatGP
   assert.match(config, /from\s*=\s*"\/api\/agent\/job"[\s\S]*?to\s*=\s*"\/\.netlify\/functions\/agent-job"/);
 });
 
+test('agent job function accepts jobId query and keeps legacy id fallback', () => {
+  const status = readFileSync('netlify/functions/agent-job.mjs', 'utf8');
+  assert.match(status, /searchParams\.get\(['"]jobId['"]\)/);
+  assert.match(status, /searchParams\.get\(['"]id['"]\)/);
+});
+
 test('agent functions use the compact agent service instead of returning raw relay secrets', () => {
   const start = readFileSync('netlify/functions/agent-research.mjs', 'utf8');
   const status = readFileSync('netlify/functions/agent-job.mjs', 'utf8');
