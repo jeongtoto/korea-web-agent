@@ -44,6 +44,10 @@ const COUPANG_SELECTORS: SiteSelectorMap = {
   availability: ['[class*="out-of-stock"]', '[class*="stock"]', '[class*="Availability"]'],
 };
 
+const NAVER_LIVE_COMMERCE_READY = /(?:상품금액|판매자\s*즉시할인|쿠폰할인|카드사\s*결제할인|최대\s*할인가|최대\s*적립\s*포인트)/i;
+const NAVER_LIVE_READ_INTERVAL_MS = 250;
+const NAVER_LIVE_MAX_READ_ATTEMPTS = 33;
+
 function siteSelectors(hostname: string): SiteSelectorMap | undefined {
   if (hostname === 'naver.com' || hostname.endsWith('.naver.com')) return NAVER_COMMERCE_SELECTORS;
   if (hostname === 'coupang.com' || hostname.endsWith('.coupang.com')) return COUPANG_SELECTORS;
@@ -94,6 +98,17 @@ function naverLiveId(url: string): string | undefined {
 
 function isNaverLiveViewUrl(url: string): boolean {
   return naverLiveId(url) !== undefined;
+}
+
+async function waitForNaverLiveCommerceText(driver: BrowserDriver): Promise<string | null> {
+  for (let attempt = 0; attempt < NAVER_LIVE_MAX_READ_ATTEMPTS; attempt += 1) {
+    const pageText = await driver.readText(['body']);
+    if (pageText && NAVER_LIVE_COMMERCE_READY.test(pageText)) return pageText;
+    if (attempt + 1 < NAVER_LIVE_MAX_READ_ATTEMPTS) {
+      await new Promise<void>((resolve) => setTimeout(resolve, NAVER_LIVE_READ_INTERVAL_MS));
+    }
+  }
+  return null;
 }
 
 function parseNaverLiveDeal(url: string, text: string): Record<string, unknown> {
@@ -152,7 +167,7 @@ export async function extractAuthenticatedFields(job: UnsignedRelayJob, driver: 
   for (const field of job.requestedFields) {
     if (naverLiveView) {
       if (field !== 'liveDeal') continue;
-      const pageText = await driver.readText(['body']);
+      const pageText = await waitForNaverLiveCommerceText(driver);
       if (pageText) Object.assign(output, parseNaverLiveDeal(job.url, pageText));
       continue;
     }
