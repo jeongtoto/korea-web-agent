@@ -10,6 +10,7 @@ export const RELAY_READ_ONLY_FIELDS = [
   'shippingEta',
   'selectedOption',
   'availability',
+  'liveDeal',
 ] as const;
 
 export type RelayReadOnlyField = (typeof RELAY_READ_ONLY_FIELDS)[number];
