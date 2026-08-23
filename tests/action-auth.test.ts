@@ -37,6 +37,15 @@ test('Custom GPT Action schema defines authenticated start and poll operations',
   assert.doesNotMatch(schema, /KWA_RELAY_SECRET/);
 });
 
+test('Custom GPT contract preserves resolved product identity across follow-up turns', () => {
+  const schema = readFileSync('openapi/korea-web-agent-action.yaml', 'utf8');
+  const config = readFileSync('docs/custom-gpt-config.md', 'utf8');
+  assert.match(schema, /conversation context/i);
+  assert.match(schema, /brand.*model.*variant/i);
+  assert.match(config, /follow-up turn/i);
+  assert.match(config, /full resolved product identity/i);
+});
+
 test('agent functions use Action key auth and never authenticate with relay secret', () => {
   for (const path of ['netlify/functions/agent-research.mjs', 'netlify/functions/agent-job.mjs']) {
     const source = readFileSync(path, 'utf8');

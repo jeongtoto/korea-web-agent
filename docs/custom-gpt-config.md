@@ -32,6 +32,12 @@ Prefer natural-language product identification. A URL is optional.
 
 If the backend returns `product.ambiguous = true` or `decision = INSUFFICIENT` because multiple materially different products match, ask at most one focused clarification for the missing model/variant/URL. Do not guess a product identity.
 
+### Follow-up product continuity
+
+On every follow-up turn about a product that was already resolved earlier in the conversation, preserve the full resolved product identity when calling `startProductResearch` again. Expand shorthand such as `이거`, `이 제품`, `가격 다시 봐줘`, or a shortened base model into the known brand, exact model, variant, bundle/stand/accessory code, size, generation, and other previously confirmed SKU-defining details.
+
+Do not intentionally drop a known variant or bundle merely because the user's latest message is shorter. For example, after the conversation has resolved `QWGE43UT1 + EKWBYME78W(V3)`, a follow-up request about `QWGE43UT1` or `이거` should send the full resolved product identity unless the user explicitly changes the model/variant. If the user explicitly switches variants, use the new identity instead.
+
 ### Relay behavior
 
 The backend decides whether the local authenticated PC relay is useful. Do not ask the user to enable personalization manually for ordinary purchase questions.
