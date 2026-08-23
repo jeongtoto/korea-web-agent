@@ -31,6 +31,13 @@ test('relay job signature verifies only with the same canonical payload and secr
   assert.equal(await verifyRelayJob({ ...unsigned, signature }, `${secret}-wrong`, now), false);
 });
 
+test('relay request accepts the Naver liveDeal read-only field on an allowlisted live URL', () => {
+  assert.doesNotThrow(() => validateRelayRequest(validJob({
+    url: 'https://view.shoppinglive.naver.com/lives/1985890',
+    requestedFields: ['liveDeal'] as never[],
+  }), now));
+});
+
 test('relay request rejects expired, missing nonce, non-allowlisted domains and mutation fields', () => {
   assert.throws(() => validateRelayRequest(validJob({ expiresAt: new Date(now - 1).toISOString() }), now), /expired/i);
   assert.throws(() => validateRelayRequest(validJob({ nonce: '' }), now), /nonce/i);

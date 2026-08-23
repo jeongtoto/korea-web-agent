@@ -89,6 +89,7 @@ function inferCandidateTarget(hit: SearchHit, seed: NormalizedTarget): Normalize
   }
   if (parsed?.productId) target.productId = parsed.productId;
   else if (seed.productId && hitText.includes(seed.productId)) target.productId = seed.productId;
+  if (parsed?.liveId) target.liveId = parsed.liveId;
   return target;
 }
 
@@ -101,6 +102,7 @@ function lexicalScore(query: string, hit: SearchHit): number {
 
 function candidateKey(target: NormalizedTarget): string {
   if (target.productId) return `id:${target.productId}`;
+  if (target.liveId) return `live:${target.liveId}`;
   return [target.brand, target.model, target.variant]
     .map((value) => value?.toLowerCase().trim() ?? '')
     .join('|') || target.name?.toLowerCase() || target.canonicalUrl || crypto.randomUUID();
@@ -108,7 +110,7 @@ function candidateKey(target: NormalizedTarget): string {
 
 function urlAuthority(target: NormalizedTarget): number {
   const host = (target.sourceHost ?? '').toLowerCase();
-  if (['brand.naver.com', 'smartstore.naver.com', 'm.smartstore.naver.com', 'product.shoppinglive.naver.com'].includes(host)) return 1;
+  if (['brand.naver.com', 'smartstore.naver.com', 'm.smartstore.naver.com', 'product.shoppinglive.naver.com', 'view.shoppinglive.naver.com'].includes(host)) return 1;
   if (host === 'coupang.com' || host.endsWith('.coupang.com')) return 0.95;
   if (host === 'danawa.com' || host.endsWith('.danawa.com')) return 0.85;
   if (host === 'blog.naver.com' || host === 'cafe.naver.com') return 0.25;
@@ -164,29 +166,30 @@ async function enrichParsedProduct(
 ): Promise<ProductResolution> {
   const cleanedQuestion = cleanQuestion(request.question);
   const query = [parsed.brand, parsed.productId, cleanedQuestion].filter(Boolean).join(' ').trim();
-  const baseConfidence = parsed.productId ? 0.8 : 0.7;
+  const baseConfidence = parsed.productId ? 0.8 : parsed.liveId ? 0.72 : 0.7;
   if (!query) {
     return {
       target: parsed,
       confidence: baseConfidence,
       ambiguous: false,
-      candidates: [{ target: parsed, score: baseConfidence, sourceUrls: request.url ? [request.url] : [], title: parsed.productId ?? 'product' }],
-      identityEvidence: request.url ? [{ title: parsed.productId ?? 'product', url: request.url, score: baseConfidence }] : [],
+      candidates: [{ target: parsed, score: baseConfidence, sourceUrls: request.url ? [request.url] : [], title: parsed.productId ?? parsed.liveId ?? 'product' }],
+      identityEvidence: request.url ? [{ title: parsed.productId ?? parsed.liveId ?? 'product', url: request.url, score: baseConfidence }] : [],
     };
   }
 
   let hits: SearchHit[] = [];
-  try { hits = await deps.publicSearch(query); } catch { /* Parsed product ID remains usable if discovery is unavailable. */ }
+  try { hits = await deps.publicSearch(query); } catch { /* Parsed product/live URL remains usable if discovery is unavailable. */ }
   const candidates = groupCandidates(parsed, query, hits.slice(0, 12));
-  const matching = candidates.find((candidate) =>
-    !parsed.productId || candidate.target.productId === parsed.productId || candidate.sourceUrls.some((url) => url.includes(parsed.productId!)));
+  const matching = parsed.productId
+    ? candidates.find((candidate) => candidate.target.productId === parsed.productId || candidate.sourceUrls.some((url) => url.includes(parsed.productId!)))
+    : candidates[0];
 
   if (!matching) {
     return {
       target: parsed,
       confidence: baseConfidence,
       ambiguous: false,
-      candidates: [{ target: parsed, score: baseConfidence, sourceUrls: request.url ? [request.url] : [], title: parsed.productId ?? 'product' }],
+      candidates: [{ target: parsed, score: baseConfidence, sourceUrls: request.url ? [request.url] : [], title: parsed.productId ?? parsed.liveId ?? 'product' }],
       identityEvidence: hits.slice(0, 5).map((hit) => ({ title: hit.title, url: hit.url, score: 0.4 })),
     };
   }
@@ -196,6 +199,7 @@ async function enrichParsedProduct(
     kind: 'product',
     ...(parsed.brand && !matching.target.brand ? { brand: parsed.brand } : {}),
     ...(parsed.productId ? { productId: parsed.productId } : {}),
+    ...(parsed.liveId ? { liveId: parsed.liveId } : {}),
     ...(parsed.sourceHost ? { sourceHost: parsed.sourceHost } : {}),
     ...(parsed.canonicalUrl ? { canonicalUrl: parsed.canonicalUrl } : {}),
   };

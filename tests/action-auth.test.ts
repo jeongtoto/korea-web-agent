@@ -44,6 +44,22 @@ test('Custom GPT operation descriptions stay within the 300-character Action lim
   assert.ok(startOperation[1].length <= 300, `startProductResearch description is ${startOperation[1].length} characters`);
 });
 
+test('Custom GPT Action price schema exposes Naver live payment and effective-price fields', () => {
+  const schema = readFileSync('openapi/korea-web-agent-action.yaml', 'utf8');
+  for (const field of [
+    'sellerInstantDiscount',
+    'couponDiscount',
+    'cardInstantDiscount',
+    'cashPaymentPrice',
+    'totalExpectedPoints',
+    'effectivePrice',
+    'dealType',
+    'liveId',
+  ]) {
+    assert.match(schema, new RegExp(`\\b${field}:`), `Action schema must expose ${field}`);
+  }
+});
+
 test('Custom GPT contract preserves resolved product identity across follow-up turns', () => {
   const schema = readFileSync('openapi/korea-web-agent-action.yaml', 'utf8');
   const config = readFileSync('docs/custom-gpt-config.md', 'utf8');

@@ -47,6 +47,60 @@ test('applyPersonalizedRelayResult merges only normalized price and delivery fie
   assert.ok(merged.evidence.some((item) => item.acquisitionMethod === 'local_relay'));
 });
 
+test('Naver live deal fields survive relay merge as explicit payment and effective-price economics', () => {
+  const job = baseJob();
+  job.request = {
+    question: '와이드뷰 QWGE43UT1 + EKWBYME78W(V3) 지금 사도 돼?',
+    url: 'https://view.shoppinglive.naver.com/lives/1985890',
+    includeLocalRelay: true,
+    category: 'product',
+  };
+  job.target = {
+    kind: 'product',
+    brand: '와이드뷰',
+    name: '와이드뷰 QWGE43UT1 이동형 패키지 V3',
+    model: 'qwge43ut1',
+    variant: '43인치 V3',
+    liveId: '1985890',
+    canonicalUrl: 'https://view.shoppinglive.naver.com/lives/1985890',
+  };
+  job.researchContext = {
+    identityConfidence: 0.95,
+    resolvedTarget: { ...job.target },
+    resolutionAmbiguous: false,
+  };
+
+  const merged = applyPersonalizedRelayResult(job, {
+    listPrice: 720000,
+    sellerInstantDiscount: 221000,
+    couponDiscount: 59880,
+    cardInstantDiscount: 21960,
+    couponPrice: 439120,
+    cashPaymentPrice: 417160,
+    salePrice: 417160,
+    totalExpectedPoints: 64200,
+    estimatedPoints: 64200,
+    effectivePrice: 352960,
+    shippingFee: 0,
+    dealType: 'naver_shopping_live',
+    liveId: '1985890',
+  }, '2026-08-23T10:00:00.000Z');
+
+  const price = merged.report?.personalizedPrice;
+  assert.equal(price?.listPrice, 720000);
+  assert.equal(price?.sellerInstantDiscount, 221000);
+  assert.equal(price?.couponDiscount, 59880);
+  assert.equal(price?.cardInstantDiscount, 21960);
+  assert.equal(price?.cashPaymentPrice, 417160);
+  assert.equal(price?.salePrice, 417160);
+  assert.equal(price?.totalExpectedPoints, 64200);
+  assert.equal(price?.estimatedPoints, 64200);
+  assert.equal(price?.effectivePrice, 352960);
+  assert.equal(price?.shippingFee, 0);
+  assert.equal(price?.dealType, 'naver_shopping_live');
+  assert.equal(price?.liveId, '1985890');
+});
+
 test('relay title can improve identity without fabricating personalized price coverage', () => {
   const merged = applyPersonalizedRelayResult(baseJob(), {
     title: '밀도 원목 수납침대 K',

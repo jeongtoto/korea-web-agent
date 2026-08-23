@@ -5,6 +5,7 @@ const NAVER_PRODUCT_HOSTS = new Set([
   'smartstore.naver.com',
   'm.smartstore.naver.com',
   'product.shoppinglive.naver.com',
+  'view.shoppinglive.naver.com',
 ]);
 
 export function parseNaverProductUrl(input: string): NormalizedTarget | null {
@@ -19,6 +20,20 @@ export function parseNaverProductUrl(input: string): NormalizedTarget | null {
   if (!NAVER_PRODUCT_HOSTS.has(host)) return null;
 
   const segments = url.pathname.split('/').filter(Boolean);
+
+  if (host === 'view.shoppinglive.naver.com') {
+    const livesIndex = segments.indexOf('lives');
+    if (livesIndex < 0 || livesIndex + 1 >= segments.length) return null;
+    const liveId = segments[livesIndex + 1];
+    if (!liveId || !/^\d+$/.test(liveId)) return null;
+    return {
+      kind: 'product',
+      liveId,
+      sourceHost: host,
+      canonicalUrl: `${url.protocol}//${host}/lives/${liveId}`,
+    };
+  }
+
   const productsIndex = segments.indexOf('products');
   if (productsIndex < 0 || productsIndex + 1 >= segments.length) return null;
 

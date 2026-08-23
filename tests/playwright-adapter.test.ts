@@ -53,6 +53,28 @@ class ShoppingLiveDriver implements BrowserDriver {
   async close(): Promise<void> {}
 }
 
+class NaverLiveViewDriver implements BrowserDriver {
+  navigatedTo: string[] = [];
+  reads: string[][] = [];
+  async navigate(url: string): Promise<void> { this.navigatedTo.push(url); }
+  async readText(selectors: readonly string[]): Promise<string | null> {
+    this.reads.push([...selectors]);
+    if (!selectors.includes('body')) return null;
+    return `
+      최대 적립 포인트 64,200원
+      무료배송
+      총 금액 499,000원
+      최대할인가 417,160원
+      상품금액 720,000원
+      판매자 즉시할인 -221,000원
+      쿠폰할인(알림받기쿠폰) -59,880원
+      카드사 결제할인(보유카드 기준) -21,960원
+      최대할인가 417,160원
+    `;
+  }
+  async close(): Promise<void> {}
+}
+
 test('authenticated extraction only navigates and reads deterministic DOM fields', async () => {
   const driver = new FakeDriver();
   const result = await extractAuthenticatedFields(job(), driver);
@@ -84,6 +106,32 @@ test('Shopping Live extraction uses site-aware deterministic selectors for all r
     selectedOption: '43인치 / V3 스탠드',
     availability: '구매 가능',
   });
+});
+
+test('Naver Shopping Live view extraction converts checkout labels into normalized live-deal economics without returning page text', async () => {
+  const url = 'https://view.shoppinglive.naver.com/lives/1985890';
+  const driver = new NaverLiveViewDriver();
+  const result = await extractAuthenticatedFields(job(['liveDeal'], url), driver);
+
+  assert.deepEqual(driver.navigatedTo, [url]);
+  assert.deepEqual(result, {
+    listPrice: 720000,
+    sellerInstantDiscount: 221000,
+    couponDiscount: 59880,
+    cardInstantDiscount: 21960,
+    couponPrice: 439120,
+    cashPaymentPrice: 417160,
+    salePrice: 417160,
+    totalExpectedPoints: 64200,
+    estimatedPoints: 64200,
+    effectivePrice: 352960,
+    shippingFee: 0,
+    dealType: 'naver_shopping_live',
+    liveId: '1985890',
+  });
+  assert.equal('bodyText' in result, false);
+  assert.equal('rawText' in result, false);
+  assert.deepEqual(driver.reads, [['body']]);
 });
 
 test('mutation-like requested fields are rejected before browser navigation', async () => {
