@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Korea Web Agent
-  version: 0.3.0
+  version: 0.4.0
   description: Read-only Korean product research with optional authenticated local-browser pricing.
 servers:
   - url: https://korea-web-agent.netlify.app
@@ -31,7 +31,7 @@ paths:
                   type: string
                   format: uri
                   maxLength: 4000
-                  description: Optional public product URL when the user supplied one.
+                  description: Optional public product or Naver Shopping Live URL when the user supplied one.
       responses:
         '200':
           description: Research completed without a pending authenticated-browser job.
@@ -113,11 +113,26 @@ components:
         salePrice: { type: number }
         couponPrice: { type: number }
         membershipPrice: { type: number }
+        sellerInstantDiscount: { type: number }
+        couponDiscount: { type: number }
+        cardInstantDiscount: { type: number }
+        cardStatementDiscount: { type: number }
+        membershipDiscount: { type: number }
+        cashPaymentPrice: { type: number }
         estimatedPoints: { type: number }
+        basePoints: { type: number }
+        membershipPoints: { type: number }
+        liveSpecialPoints: { type: number }
+        totalExpectedPoints: { type: number }
+        effectivePrice: { type: number }
         shippingFee: { type: number }
         shippingEta: { type: string }
         selectedOption: { type: string }
         availability: { type: string }
+        dealType: { type: string }
+        liveId: { type: string }
+        liveStatus: { type: string }
+        liveEndAt: { type: string }
         sourceUrl: { type: string, format: uri }
     ConfidenceDimensions:
       type: object
@@ -146,6 +161,7 @@ components:
         model: { type: string }
         variant: { type: string }
         productId: { type: string }
+        liveId: { type: string }
         sourceHost: { type: string }
         canonicalUrl: { type: string, format: uri }
         identityConfidence: { type: number, minimum: 0, maximum: 1 }
