@@ -19,6 +19,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/agent/job"
+  to = "/.netlify/functions/agent-job"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/agent/jobs/*"
   to = "/.netlify/functions/agent-job?id=:splat"
   status = 200

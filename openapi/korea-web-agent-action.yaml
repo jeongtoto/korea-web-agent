@@ -51,14 +51,14 @@ paths:
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
-  /api/agent/jobs/{id}:
+  /api/agent/job:
     get:
       operationId: getProductResearchResult
       summary: Get the latest result for a product research job.
-      description: Call after startProductResearch returns status=running. Continue only while status is running; stop polling after a terminal status.
+      description: Call after startProductResearch returns status=running. Pass the returned jobId unchanged and continue only while status is running.
       parameters:
-        - name: id
-          in: path
+        - name: jobId
+          in: query
           required: true
           schema:
             type: string

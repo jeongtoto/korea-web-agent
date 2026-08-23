@@ -11,9 +11,10 @@ export default async (request) => {
   if (!actionAuthConfigured(actionKey)) return json({ error: 'Action API authentication is not configured' }, 503);
   if (!actionAuthorized(request, actionKey)) return json({ error: 'unauthorized' }, 401);
 
-  const id = new URL(request.url).searchParams.get('id');
-  if (!id) return json({ error: 'id is required' }, 400);
-  if (id.length > 200) return json({ error: 'id is invalid' }, 400);
+  const searchParams = new URL(request.url).searchParams;
+  const id = searchParams.get('jobId') ?? searchParams.get('id');
+  if (!id) return json({ error: 'jobId is required' }, 400);
+  if (id.length > 200) return json({ error: 'jobId is invalid' }, 400);
 
   try {
     const job = await getStoredResearchJob(getKoreaWebAgentStore(), id);

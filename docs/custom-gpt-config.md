@@ -125,4 +125,4 @@ Production base URL:
 Primary operations:
 
 - `startProductResearch` → `POST /api/agent/research`
-- `getProductResearchResult` → `GET /api/agent/jobs/{id}`
+- `getProductResearchResult` → `GET /api/agent/job?jobId=...`

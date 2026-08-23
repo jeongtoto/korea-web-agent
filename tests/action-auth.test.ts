@@ -25,14 +25,15 @@ test('Action auth is considered unconfigured for missing or short secrets', () =
   assert.equal(actionAuthConfigured('short'), false);
 });
 
-test('Custom GPT Action schema defines authenticated start and poll operations', () => {
+test('Custom GPT Action schema defines authenticated start and query-based poll operations', () => {
   assert.equal(existsSync('openapi/korea-web-agent-action.yaml'), true);
   const schema = readFileSync('openapi/korea-web-agent-action.yaml', 'utf8');
   assert.match(schema, /openapi:\s*3\.1\.0/);
   assert.match(schema, /\/api\/agent\/research:/);
-  assert.match(schema, /\/api\/agent\/jobs\/\{id\}:/);
+  assert.match(schema, /\/api\/agent\/job:/);
   assert.match(schema, /operationId:\s*startProductResearch/);
   assert.match(schema, /operationId:\s*getProductResearchResult/);
+  assert.match(schema, /- name:\s*jobId\n\s+in:\s*query/);
   assert.match(schema, /scheme:\s*bearer/);
   assert.doesNotMatch(schema, /KWA_RELAY_SECRET/);
 });

@@ -165,7 +165,7 @@ export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {
     sourceCoverage: sourceCoverage(job),
     errors: [...job.errors],
   };
-  if (job.status === 'running') result.pollUrl = `/api/agent/jobs/${encodeURIComponent(job.id)}`;
+  if (job.status === 'running') result.pollUrl = `/api/agent/job?jobId=${encodeURIComponent(job.id)}`;
   if (report?.confidenceDimensions) result.confidenceDimensions = report.confidenceDimensions;
   if (report?.price) result.price = report.price;
   if (report?.personalizedPrice) result.personalizedPrice = report.personalizedPrice;
