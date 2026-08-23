@@ -120,6 +120,30 @@ test('preserves Naver Shopping Live liveId while enriching a live-view URL with 
   assert.equal(result.target.sourceHost, 'view.shoppinglive.naver.com');
 });
 
+test('preserves explicit live-query identity when discovery returns only the generic broadcast title', async () => {
+  const liveUrl = 'https://view.shoppinglive.naver.com/lives/1985890';
+  const result = await resolveProduct({
+    question: '와이드뷰 QWGE43UT1 + EKWBYME78W(V3) 43인치 이동형 패키지 가격 확인',
+    url: liveUrl,
+    category: 'product',
+  }, {
+    publicSearch: async () => [{
+      title: '🎁브랜드데이🎁와이드무빙뷰 화이트 삼탠바이미 이동식 스마트TV',
+      url: liveUrl,
+      snippet: '네이버 쇼핑라이브 다시보기',
+    }],
+  });
+
+  assert.equal(result.ambiguous, false);
+  assert.equal(result.target.brand, '와이드뷰');
+  assert.equal(result.target.model, 'qwge43ut1');
+  assert.match(result.target.variant ?? '', /43인치/i);
+  assert.match(result.target.name ?? '', /QWGE43UT1/i);
+  assert.match(result.target.name ?? '', /V3/i);
+  assert.equal(result.target.liveId, '1985890');
+  assert.equal(result.target.canonicalUrl, liveUrl);
+});
+
 test('refuses to resolve when top candidates are too close', async () => {
   const result = await resolveProduct({
     question: '43인치 4K 스마트모니터 어때?',
