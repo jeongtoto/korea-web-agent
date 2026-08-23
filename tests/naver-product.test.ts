@@ -26,6 +26,16 @@ test('parses Naver Shopping Live product URL without fabricating a brand', () =>
   assert.equal(target?.canonicalUrl, 'https://product.shoppinglive.naver.com/products/11458011168');
 });
 
+test('parses Naver Shopping Live view URL and preserves live identity without fabricating product identity', () => {
+  const target = parseNaverProductUrl('https://view.shoppinglive.naver.com/lives/1985890?fm=store&tr=ltlim');
+  assert.equal(target?.kind, 'product');
+  assert.equal(target?.liveId, '1985890');
+  assert.equal(target?.sourceHost, 'view.shoppinglive.naver.com');
+  assert.equal(target?.brand, undefined);
+  assert.equal(target?.productId, undefined);
+  assert.equal(target?.canonicalUrl, 'https://view.shoppinglive.naver.com/lives/1985890');
+});
+
 test('returns null for a non-Naver product URL', () => {
   assert.equal(parseNaverProductUrl('https://example.com/products/123'), null);
 });
