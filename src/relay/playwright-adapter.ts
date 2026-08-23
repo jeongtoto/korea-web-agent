@@ -66,9 +66,81 @@ function parseKrw(text: string | null): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
+function parseCapturedKrw(text: string, pattern: RegExp): number | undefined {
+  const match = text.match(pattern);
+  const raw = match?.[1];
+  if (!raw) return undefined;
+  const value = Number(raw.replace(/,/g, ''));
+  return Number.isFinite(value) ? value : undefined;
+}
+
 function normalizeText(text: string | null): string | undefined {
   const normalized = text?.replace(/\s+/g, ' ').trim();
   return normalized || undefined;
+}
+
+function naverLiveId(url: string): string | undefined {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname.toLowerCase() !== 'view.shoppinglive.naver.com') return undefined;
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const index = segments.indexOf('lives');
+    const value = index >= 0 ? segments[index + 1] : undefined;
+    return value && /^\d+$/.test(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isNaverLiveViewUrl(url: string): boolean {
+  return naverLiveId(url) !== undefined;
+}
+
+function parseNaverLiveDeal(url: string, text: string): Record<string, unknown> {
+  const listPrice = parseCapturedKrw(text, /상품금액\s*([0-9][0-9,]*)\s*원/i);
+  const sellerInstantDiscount = parseCapturedKrw(text, /판매자\s*즉시할인\s*-?\s*([0-9][0-9,]*)\s*원/i);
+  const couponDiscount = parseCapturedKrw(text, /쿠폰할인(?:\([^\n)]*\))?\s*-?\s*([0-9][0-9,]*)\s*원/i);
+  const cardInstantDiscount = parseCapturedKrw(text, /카드사\s*결제할인(?:\([^\n)]*\))?\s*-?\s*([0-9][0-9,]*)\s*원/i);
+  const explicitCashPaymentPrice = parseCapturedKrw(text, /최대\s*할인가\s*([0-9][0-9,]*)\s*원/i);
+  const totalExpectedPoints = parseCapturedKrw(text, /최대\s*적립\s*포인트\s*([0-9][0-9,]*)\s*원/i);
+  const shippingFee = /무료\s*배송/i.test(text)
+    ? 0
+    : parseCapturedKrw(text, /배송비\s*([0-9][0-9,]*)\s*원/i);
+
+  const couponPrice = listPrice !== undefined && sellerInstantDiscount !== undefined && couponDiscount !== undefined
+    ? Math.max(0, listPrice - sellerInstantDiscount - couponDiscount)
+    : undefined;
+  const computedCashPaymentPrice = listPrice !== undefined
+      && sellerInstantDiscount !== undefined
+      && couponDiscount !== undefined
+      && cardInstantDiscount !== undefined
+    ? Math.max(0, listPrice - sellerInstantDiscount - couponDiscount - cardInstantDiscount + (shippingFee ?? 0))
+    : undefined;
+  const cashPaymentPrice = explicitCashPaymentPrice ?? computedCashPaymentPrice;
+  const effectivePrice = cashPaymentPrice !== undefined && totalExpectedPoints !== undefined
+    ? Math.max(0, cashPaymentPrice - totalExpectedPoints)
+    : undefined;
+
+  const output: Record<string, unknown> = {
+    dealType: 'naver_shopping_live',
+    liveId: naverLiveId(url),
+  };
+  if (listPrice !== undefined) output.listPrice = listPrice;
+  if (sellerInstantDiscount !== undefined) output.sellerInstantDiscount = sellerInstantDiscount;
+  if (couponDiscount !== undefined) output.couponDiscount = couponDiscount;
+  if (cardInstantDiscount !== undefined) output.cardInstantDiscount = cardInstantDiscount;
+  if (couponPrice !== undefined) output.couponPrice = couponPrice;
+  if (cashPaymentPrice !== undefined) {
+    output.cashPaymentPrice = cashPaymentPrice;
+    output.salePrice = cashPaymentPrice;
+  }
+  if (totalExpectedPoints !== undefined) {
+    output.totalExpectedPoints = totalExpectedPoints;
+    output.estimatedPoints = totalExpectedPoints;
+  }
+  if (effectivePrice !== undefined) output.effectivePrice = effectivePrice;
+  if (shippingFee !== undefined) output.shippingFee = shippingFee;
+  return output;
 }
 
 export async function extractAuthenticatedFields(job: UnsignedRelayJob, driver: BrowserDriver): Promise<Record<string, unknown>> {
@@ -76,7 +148,16 @@ export async function extractAuthenticatedFields(job: UnsignedRelayJob, driver: 
   await driver.navigate(job.url);
 
   const output: Record<string, unknown> = {};
+  const naverLiveView = isNaverLiveViewUrl(job.url);
   for (const field of job.requestedFields) {
+    if (naverLiveView) {
+      if (field !== 'liveDeal') continue;
+      const pageText = await driver.readText(['body']);
+      if (pageText) Object.assign(output, parseNaverLiveDeal(job.url, pageText));
+      continue;
+    }
+    if (field === 'liveDeal') continue;
+
     const selectors = selectorsFor(job.url, field);
     if (!selectors.length) throw new Error(`No read-only extractor for field: ${field}`);
     const raw = await driver.readText(selectors);
