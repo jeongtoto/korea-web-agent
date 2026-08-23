@@ -7,4 +7,6 @@ Korea Web Agent v0.3 uses two separate secrets:
 
 Keep both values secret and never reuse one as the other. After adding or rotating either Netlify environment variable, trigger a fresh production deploy before testing the affected route.
 
+For this personal deployment, `KWA_ACTION_API_KEY` should have a non-empty Production value. Non-production contexts may remain empty unless preview or branch Action testing is intentionally enabled.
+
 Custom GPT imports `openapi/korea-web-agent-action.yaml` and configures HTTP bearer authentication with `KWA_ACTION_API_KEY`. The GPT should remain private for a personal deployment.
