@@ -127,11 +127,26 @@ export interface PriceSnapshot {
   salePrice?: number;
   couponPrice?: number;
   membershipPrice?: number;
+  sellerInstantDiscount?: number;
+  couponDiscount?: number;
+  cardInstantDiscount?: number;
+  cardStatementDiscount?: number;
+  membershipDiscount?: number;
+  cashPaymentPrice?: number;
   estimatedPoints?: number;
+  basePoints?: number;
+  membershipPoints?: number;
+  liveSpecialPoints?: number;
+  totalExpectedPoints?: number;
+  effectivePrice?: number;
   shippingFee?: number;
   shippingEta?: string;
   selectedOption?: string;
   availability?: string;
+  dealType?: string;
+  liveId?: string;
+  liveStatus?: string;
+  liveEndAt?: string;
   sourceUrl?: string;
 }
 
