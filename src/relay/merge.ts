@@ -20,22 +20,45 @@ function sanitizedObject(rawResult: unknown): Record<string, unknown> {
 
 function priceFromObject(object: Record<string, unknown>): PriceSnapshot {
   const price: PriceSnapshot = { currency: stringField(object.currency) ?? 'KRW' };
+  const numericKeys = [
+    'listPrice',
+    'couponPrice',
+    'membershipPrice',
+    'sellerInstantDiscount',
+    'couponDiscount',
+    'cardInstantDiscount',
+    'cardStatementDiscount',
+    'membershipDiscount',
+    'cashPaymentPrice',
+    'estimatedPoints',
+    'basePoints',
+    'membershipPoints',
+    'liveSpecialPoints',
+    'totalExpectedPoints',
+    'effectivePrice',
+    'shippingFee',
+  ] as const;
   const salePrice = numberField(object.price ?? object.salePrice);
-  const couponPrice = numberField(object.couponPrice);
-  const membershipPrice = numberField(object.membershipPrice);
-  const estimatedPoints = numberField(object.estimatedPoints);
-  const shippingFee = numberField(object.shippingFee);
-  const shippingEta = stringField(object.shippingEta);
-  const selectedOption = stringField(object.selectedOption);
-  const availability = stringField(object.availability);
   if (salePrice !== undefined) price.salePrice = salePrice;
-  if (couponPrice !== undefined) price.couponPrice = couponPrice;
-  if (membershipPrice !== undefined) price.membershipPrice = membershipPrice;
-  if (estimatedPoints !== undefined) price.estimatedPoints = estimatedPoints;
-  if (shippingFee !== undefined) price.shippingFee = shippingFee;
-  if (shippingEta) price.shippingEta = shippingEta;
-  if (selectedOption) price.selectedOption = selectedOption;
-  if (availability) price.availability = availability;
+  for (const key of numericKeys) {
+    const value = numberField(object[key]);
+    if (value !== undefined) price[key] = value;
+  }
+
+  const textKeys = [
+    'shippingEta',
+    'selectedOption',
+    'availability',
+    'dealType',
+    'liveId',
+    'liveStatus',
+    'liveEndAt',
+    'sourceUrl',
+  ] as const;
+  for (const key of textKeys) {
+    const value = stringField(object[key]);
+    if (value) price[key] = value;
+  }
   return price;
 }
 
@@ -49,10 +72,21 @@ function hasUsefulCommerceFields(price: PriceSnapshot): boolean {
     price.salePrice,
     price.couponPrice,
     price.membershipPrice,
+    price.sellerInstantDiscount,
+    price.couponDiscount,
+    price.cardInstantDiscount,
+    price.cardStatementDiscount,
+    price.membershipDiscount,
+    price.cashPaymentPrice,
     price.estimatedPoints,
+    price.basePoints,
+    price.membershipPoints,
+    price.liveSpecialPoints,
+    price.totalExpectedPoints,
+    price.effectivePrice,
     price.shippingFee,
   ].some((value) => typeof value === 'number' && Number.isFinite(value)) ||
-    Boolean(price.shippingEta || price.selectedOption || price.availability);
+    Boolean(price.shippingEta || price.selectedOption || price.availability || price.dealType || price.liveId || price.liveStatus || price.liveEndAt);
 }
 
 function relayTitleConsistent(job: ResearchJob, title: string): boolean {
@@ -86,14 +120,22 @@ function relayEvidence(job: ResearchJob, target: NormalizedTarget, price: PriceS
   const url = job.request.url ?? target.canonicalUrl ?? 'https://example.invalid/';
   const bits: string[] = [];
   if (title) bits.push(`상품명 ${title}`);
+  if (price.listPrice !== undefined) bits.push(`정상가 ${price.listPrice} ${price.currency}`);
   if (price.salePrice !== undefined) bits.push(`판매가 ${price.salePrice} ${price.currency}`);
-  if (price.couponPrice !== undefined) bits.push(`쿠폰가 ${price.couponPrice} ${price.currency}`);
+  if (price.couponPrice !== undefined) bits.push(`쿠폰 적용가 ${price.couponPrice} ${price.currency}`);
   if (price.membershipPrice !== undefined) bits.push(`멤버십 가격 ${price.membershipPrice} ${price.currency}`);
+  if (price.cashPaymentPrice !== undefined) bits.push(`실결제가 ${price.cashPaymentPrice} ${price.currency}`);
+  if (price.effectivePrice !== undefined) bits.push(`적립 포함 체감가 ${price.effectivePrice} ${price.currency}`);
+  if (price.sellerInstantDiscount !== undefined) bits.push(`판매자 즉시할인 ${price.sellerInstantDiscount} ${price.currency}`);
+  if (price.couponDiscount !== undefined) bits.push(`쿠폰 할인 ${price.couponDiscount} ${price.currency}`);
+  if (price.cardInstantDiscount !== undefined) bits.push(`카드 즉시할인 ${price.cardInstantDiscount} ${price.currency}`);
   if (price.estimatedPoints !== undefined) bits.push(`예상 적립 ${price.estimatedPoints} ${price.currency}`);
   if (price.shippingFee !== undefined) bits.push(`배송비 ${price.shippingFee} ${price.currency}`);
   if (price.shippingEta) bits.push(`배송 예정 ${price.shippingEta}`);
   if (price.selectedOption) bits.push(`선택 옵션 ${price.selectedOption}`);
   if (price.availability) bits.push(`재고 상태 ${price.availability}`);
+  if (price.dealType) bits.push(`딜 유형 ${price.dealType}`);
+  if (price.liveId) bits.push(`라이브 ID ${price.liveId}`);
   return {
     claim: bits.length ? bits.join(' / ') : '로그인 세션에서 읽기 전용 상품 페이지 확인을 완료함',
     sourceUrl: url,
