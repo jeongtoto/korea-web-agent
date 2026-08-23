@@ -1,4 +1,5 @@
 import { classifyResearchIntent } from '../core/intent.ts';
+import { matchEvidenceToProduct } from '../core/product-match.ts';
 import { assertPublicUrl, isRelayDomainAllowed } from '../core/policy.ts';
 import type {
   EvidenceClass,
@@ -205,6 +206,29 @@ function relayEligible(url: string | undefined): boolean {
   }
 }
 
+function relayDiscoveryQuery(target: NormalizedTarget): string {
+  const identity = [...new Set([target.brand, target.model, target.variant, target.name].filter((value): value is string => Boolean(value?.trim())))]
+    .join(' ')
+    .trim();
+  return identity ? `${identity} site:naver.com OR site:coupang.com` : '';
+}
+
+async function discoverRelayEligibleUrl(target: NormalizedTarget, deps: AgentResearchDependencies): Promise<string | undefined> {
+  const query = relayDiscoveryQuery(target);
+  if (!query) return undefined;
+  try {
+    const hits = await deps.publicSearch(query);
+    for (const hit of hits.slice(0, 12)) {
+      if (!relayEligible(hit.url)) continue;
+      if (matchEvidenceToProduct(target, hit).level !== 'exact_product') continue;
+      return assertPublicUrl(hit.url).toString();
+    }
+  } catch {
+    // Public research should remain usable if a relay-specific discovery query fails.
+  }
+  return undefined;
+}
+
 export async function runAgentResearch(
   rawInput: AgentResearchInput,
   deps: AgentResearchDependencies,
@@ -220,7 +244,10 @@ export async function runAgentResearch(
   }
 
   const target: NormalizedTarget = { ...resolution.target };
-  const url = input.url ?? target.canonicalUrl;
+  let url = input.url ?? target.canonicalUrl;
+  if (!input.url && intent.personalizedPriceUseful && !relayEligible(url)) {
+    url = await discoverRelayEligibleUrl(target, deps) ?? url;
+  }
   const wantsRelay = Boolean(intent.personalizedPriceUseful && relayEligible(url));
   const request: ResearchRequest = {
     question: input.query,
