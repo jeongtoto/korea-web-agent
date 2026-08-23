@@ -37,6 +37,13 @@ test('Custom GPT Action schema defines authenticated start and poll operations',
   assert.doesNotMatch(schema, /KWA_RELAY_SECRET/);
 });
 
+test('Custom GPT operation descriptions stay within the 300-character Action limit', () => {
+  const schema = readFileSync('openapi/korea-web-agent-action.yaml', 'utf8');
+  const startOperation = schema.match(/operationId:\s*startProductResearch\n\s+summary:[^\n]*\n\s+description:\s*([^\n]+)/);
+  assert.ok(startOperation, 'startProductResearch description must exist');
+  assert.ok(startOperation[1].length <= 300, `startProductResearch description is ${startOperation[1].length} characters`);
+});
+
 test('Custom GPT contract preserves resolved product identity across follow-up turns', () => {
   const schema = readFileSync('openapi/korea-web-agent-action.yaml', 'utf8');
   const config = readFileSync('docs/custom-gpt-config.md', 'utf8');

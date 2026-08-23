@@ -12,7 +12,7 @@ paths:
     post:
       operationId: startProductResearch
       summary: Research a concrete product and decide whether current evidence supports buying, waiting, skipping, or more research.
-      description: Use for product research, current-price questions, purchase decisions, review synthesis, or comparisons. The backend decides automatically whether authenticated PC pricing is useful. On follow-up turns, use conversation context to preserve previously resolved SKU-defining details rather than shortening the identity.
+      description: Use for product research, prices, purchase decisions, reviews, or comparisons. The backend decides whether PC pricing is useful. On follow-ups, preserve previously resolved SKU details from conversation context.
       requestBody:
         required: true
         content:
