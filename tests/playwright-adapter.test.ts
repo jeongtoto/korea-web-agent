@@ -75,6 +75,29 @@ class NaverLiveViewDriver implements BrowserDriver {
   async close(): Promise<void> {}
 }
 
+class DelayedNaverLiveViewDriver implements BrowserDriver {
+  navigatedTo: string[] = [];
+  reads: string[][] = [];
+  bodyReads = 0;
+  async navigate(url: string): Promise<void> { this.navigatedTo.push(url); }
+  async readText(selectors: readonly string[]): Promise<string | null> {
+    this.reads.push([...selectors]);
+    if (!selectors.includes('body')) return null;
+    this.bodyReads += 1;
+    if (this.bodyReads < 3) return null;
+    return `
+      상품금액 720,000원
+      판매자 즉시할인 -221,000원
+      쿠폰할인(알림받기쿠폰) -59,880원
+      카드사 결제할인(보유카드 기준) -21,960원
+      최대할인가 417,160원
+      최대 적립 포인트 64,200원
+      무료배송
+    `;
+  }
+  async close(): Promise<void> {}
+}
+
 test('authenticated extraction only navigates and reads deterministic DOM fields', async () => {
   const driver = new FakeDriver();
   const result = await extractAuthenticatedFields(job(), driver);
@@ -132,6 +155,21 @@ test('Naver Shopping Live view extraction converts checkout labels into normaliz
   assert.equal('bodyText' in result, false);
   assert.equal('rawText' in result, false);
   assert.deepEqual(driver.reads, [['body']]);
+});
+
+test('Naver Shopping Live view extraction waits for delayed SPA body content before giving up', async () => {
+  const url = 'https://view.shoppinglive.naver.com/lives/1985890';
+  const driver = new DelayedNaverLiveViewDriver();
+  const result = await extractAuthenticatedFields(job(['liveDeal'], url), driver);
+
+  assert.deepEqual(driver.navigatedTo, [url]);
+  assert.equal(driver.bodyReads, 3);
+  assert.equal(result.listPrice, 720000);
+  assert.equal(result.cashPaymentPrice, 417160);
+  assert.equal(result.totalExpectedPoints, 64200);
+  assert.equal(result.effectivePrice, 352960);
+  assert.equal(result.dealType, 'naver_shopping_live');
+  assert.equal(result.liveId, '1985890');
 });
 
 test('mutation-like requested fields are rejected before browser navigation', async () => {
