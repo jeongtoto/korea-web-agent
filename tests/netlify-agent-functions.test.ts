@@ -10,12 +10,12 @@ test('agent input validator accepts query-only requests and rejects private/loca
   assert.throws(() => validateAgentResearchInput({ query: '테스트', url: 'http://127.0.0.1/private' }), /private|local/i);
 });
 
-test('Netlify publishes start and status functions for ChatGPT Action polling', () => {
+test('Netlify publishes start and direct query-based status functions for ChatGPT Action polling', () => {
   assert.equal(existsSync('netlify/functions/agent-research.mjs'), true);
   assert.equal(existsSync('netlify/functions/agent-job.mjs'), true);
   const config = readFileSync('netlify.toml', 'utf8');
   assert.match(config, /from\s*=\s*"\/api\/agent\/research"/);
-  assert.match(config, /from\s*=\s*"\/api\/agent\/jobs\/\*"/);
+  assert.match(config, /from\s*=\s*"\/api\/agent\/job"[\s\S]*?to\s*=\s*"\/\.netlify\/functions\/agent-job"/);
 });
 
 test('agent functions use the compact agent service instead of returning raw relay secrets', () => {
