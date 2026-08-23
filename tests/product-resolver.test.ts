@@ -93,6 +93,33 @@ test('enriches a Shopping Live URL product id with discovery identity instead of
   assert.match(result.target.variant ?? '', /43/);
 });
 
+test('preserves Naver Shopping Live liveId while enriching a live-view URL with product identity', async () => {
+  const liveUrl = 'https://view.shoppinglive.naver.com/lives/1985890?fm=store&tr=ltlim';
+  const result = await resolveProduct({
+    question: '와이드뷰 QWGE43UT1 + EKWBYME78W(V3) 43인치 이동형 패키지 가격 확인',
+    url: liveUrl,
+    category: 'product',
+  }, {
+    publicSearch: async () => [
+      {
+        title: '와이드뷰 QWGE43UT1 43인치 QLED 4K + EKWBYME78W V3 이동형 패키지',
+        url: 'https://brand.naver.com/widevu/products/11458011168',
+        snippet: 'QWGE43UT1 EKWBYME78W V3 43인치 이동형 패키지',
+      },
+      {
+        title: '와이드뷰 QWGE43UT1 V3 43인치 가격비교',
+        url: 'https://prod.danawa.com/info/?pcode=88236242',
+        snippet: 'QWGE43UT1 V3 43인치',
+      },
+    ],
+  });
+
+  assert.equal(result.ambiguous, false);
+  assert.equal(result.target.liveId, '1985890');
+  assert.equal(result.target.canonicalUrl, 'https://view.shoppinglive.naver.com/lives/1985890');
+  assert.equal(result.target.sourceHost, 'view.shoppinglive.naver.com');
+});
+
 test('refuses to resolve when top candidates are too close', async () => {
   const result = await resolveProduct({
     question: '43인치 4K 스마트모니터 어때?',
