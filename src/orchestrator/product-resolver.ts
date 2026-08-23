@@ -88,8 +88,8 @@ function inferCandidateTarget(hit: SearchHit, seed: NormalizedTarget): Normalize
     // Search provider already validates URLs; leave optional URL fields absent if malformed.
   }
   if (parsed?.productId) target.productId = parsed.productId;
-  if (parsed?.liveId) target.liveId = parsed.liveId;
   else if (seed.productId && hitText.includes(seed.productId)) target.productId = seed.productId;
+  if (parsed?.liveId) target.liveId = parsed.liveId;
   return target;
 }
 
@@ -165,8 +165,8 @@ async function enrichParsedProduct(
   deps: ProductResolverDependencies,
 ): Promise<ProductResolution> {
   const cleanedQuestion = cleanQuestion(request.question);
-  const query = [parsed.brand, parsed.productId, parsed.liveId, cleanedQuestion].filter(Boolean).join(' ').trim();
-  const baseConfidence = parsed.productId || parsed.liveId ? 0.8 : 0.7;
+  const query = [parsed.brand, parsed.productId, cleanedQuestion].filter(Boolean).join(' ').trim();
+  const baseConfidence = parsed.productId ? 0.8 : parsed.liveId ? 0.72 : 0.7;
   if (!query) {
     return {
       target: parsed,
@@ -178,7 +178,7 @@ async function enrichParsedProduct(
   }
 
   let hits: SearchHit[] = [];
-  try { hits = await deps.publicSearch(query); } catch { /* Parsed product/live ID remains usable if discovery is unavailable. */ }
+  try { hits = await deps.publicSearch(query); } catch { /* Parsed product/live URL remains usable if discovery is unavailable. */ }
   const candidates = groupCandidates(parsed, query, hits.slice(0, 12));
   const matching = parsed.productId
     ? candidates.find((candidate) => candidate.target.productId === parsed.productId || candidate.sourceUrls.some((url) => url.includes(parsed.productId!)))
