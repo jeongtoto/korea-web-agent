@@ -133,3 +133,28 @@ test('WideView specification-only question resolves the same product without ope
   assert.equal(result.relay.used, false);
   assert.equal(relayExtractCalls, 0);
 });
+
+test('bedding category question returns a ranked Best 3 with design, care, review and value dimensions', async () => {
+  const beddingHits = [
+    { title: '브랜드A 알러지케어 고밀도 순면 레드 포인트 호텔 차렵이불 Q 퀸 세탁가능 후기 4.8', url: 'https://brand.naver.com/a/products/1', snippet: '사계절 먼지 적음 129,000원 무료배송' },
+    { title: '브랜드B 모달 100 사계절 차렵이불 Q 베이지 레드 배색 리뷰 4.7', url: 'https://www.coupang.com/vp/products/2', snippet: '세탁기 가능 159,000원 무료배송' },
+    { title: '브랜드C 워싱 순면 차렵이불 퀸 딥그레이 레드 침대 어울림 리뷰 4.6', url: 'https://kream.co.kr/products/3', snippet: '세탁기 가능 119,000원 무료배송' },
+  ];
+  const result = await runAgentResearch({
+    query: '에이스 하이테크 레드 침대에 어울리는 퀸 이불을 디자인, 품질, 리뷰, 관리, 가격까지 비교해 Best 3 추천해줘',
+    purchaseContext: { budget: 200000, preferences: ['세탁기 가능', '사계절', '먼지 적음'] },
+  }, {
+    publicSearch: async () => beddingHits,
+    cloudResearch: async (request, context) => runResearch(request, createDefaultResearchDependencies({
+      publicSearch: async () => beddingHits,
+      academicSearch: async () => [],
+      relayClient: null,
+      now: () => new Date('2026-08-24T00:00:00.000Z'),
+      idFactory: () => 'bedding-e2e',
+    }), context),
+  });
+
+  assert.equal(result.recommendations?.length, 3);
+  assert.deepEqual(result.recommendations?.map((item) => item.rank), [1, 2, 3]);
+  assert.ok(result.recommendations?.every((item) => item.scores.design > 0 && item.scores.care > 0 && item.reasons.length > 0));
+});

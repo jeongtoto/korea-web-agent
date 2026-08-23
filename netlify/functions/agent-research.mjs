@@ -15,7 +15,7 @@ export default async (request) => {
 
   let input;
   try {
-    input = validateAgentResearchInput(await readJson(request, 16 * 1024));
+    input = validateAgentResearchInput(await readJson(request, 64 * 1024));
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : String(error) }, 400);
   }

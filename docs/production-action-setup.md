@@ -1,6 +1,6 @@
 # Production Action setup
 
-Korea Web Agent v0.3 uses two separate secrets:
+Korea Web Agent v0.5 uses two separate secrets:
 
 - `KWA_RELAY_SECRET` for the PC connector relay only.
 - `KWA_ACTION_API_KEY` for Custom GPT Action requests only.

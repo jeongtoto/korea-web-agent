@@ -1,7 +1,9 @@
 import { normalizeEvidence } from '../core/evidence.ts';
 import { matchEvidenceToProduct } from '../core/product-match.ts';
-import type { EvidenceItem, NormalizedTarget, PriceSnapshot, ResearchJob } from '../core/types.ts';
+import type { EvidenceItem, MarketOffer, NormalizedTarget, OfferCondition, PriceSnapshot, ResearchJob } from '../core/types.ts';
 import { buildProductReport } from '../report/product-report.ts';
+import { rankMarketOffers } from '../core/offer-engine.ts';
+import { buildRecommendations } from '../core/recommendation-engine.ts';
 import { selectNaverLiveProductCard } from './naver-live.ts';
 import { sanitizeRelayResult } from './protocol.ts';
 
@@ -11,6 +13,10 @@ function numberField(value: unknown): number | undefined {
 
 function stringField(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => item.trim()).slice(0, 20) : [];
 }
 
 function sanitizedObject(rawResult: unknown): Record<string, unknown> {
@@ -94,6 +100,9 @@ function relayTitleConsistent(job: ResearchJob, title: string): boolean {
   const target = job.target;
   const hasResolvedDescriptors = Boolean(target.name || target.model || target.variant);
   if (!hasResolvedDescriptors) return true;
+  const normalizedName = target.name?.toLowerCase().replace(/[^0-9a-z가-힣]+/gi, '');
+  const normalizedTitle = title.toLowerCase().replace(/[^0-9a-z가-힣]+/gi, '');
+  if (normalizedName && normalizedName.length >= 6 && normalizedTitle.includes(normalizedName)) return true;
 
   let isNaverLive = false;
   try {
@@ -182,6 +191,7 @@ function relayEvidence(job: ResearchJob, target: NormalizedTarget, price: PriceS
 
 export function applyPersonalizedRelayResult(job: ResearchJob, rawResult: unknown, completedAt = new Date().toISOString()): ResearchJob {
   const object = sanitizedObject(rawResult);
+  if (Array.isArray(object.offers)) return applyBatchRelayResult(job, object.offers, completedAt);
   const rawTitle = stringField(object.title);
   const titleRejected = Boolean(rawTitle && !relayTitleConsistent(job, rawTitle));
   const title = titleRejected ? undefined : rawTitle;
@@ -234,6 +244,144 @@ export function applyPersonalizedRelayResult(job: ResearchJob, rawResult: unknow
     evidence,
     sourceResults,
     relay,
+    report,
+  };
+}
+
+function applyBatchRelayResult(job: ResearchJob, rawOffers: unknown[], completedAt: string): ResearchJob {
+  const verifiedOffers: MarketOffer[] = [];
+  const localEvidence: EvidenceItem[] = [];
+  let primaryPrice: PriceSnapshot | undefined;
+  let primaryTitle: string | undefined;
+
+  for (const raw of rawOffers.slice(0, 8)) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const object = raw as Record<string, unknown>;
+    const url = stringField(object.url);
+    const market = stringField(object.market);
+    const title = stringField(object.title);
+    if (!url || !market || !title) continue;
+    const rawHint = object.targetHint && typeof object.targetHint === 'object' && !Array.isArray(object.targetHint)
+      ? object.targetHint as Record<string, unknown>
+      : {};
+    const expectedTarget: NormalizedTarget = {
+      kind: 'product',
+      ...Object.fromEntries(['brand', 'name', 'model', 'variant', 'productId', 'liveId']
+        .flatMap((key) => {
+          const value = stringField(rawHint[key]);
+          return value ? [[key, value]] : [];
+        })),
+    };
+    const temporaryJob: ResearchJob = { ...job, target: Object.keys(rawHint).length ? expectedTarget : job.target, request: { ...job.request, url } };
+    const titleConsistent = relayTitleConsistent(temporaryJob, title);
+    const price = priceFromObject(object);
+    const conditionValue = stringField(object.condition);
+    const allowedConditions: OfferCondition[] = ['new', 'refurbished', 'open_box', 'display', 'used', 'unknown'];
+    const condition: OfferCondition = allowedConditions.includes(conditionValue as OfferCondition) ? conditionValue as OfferCondition : 'unknown';
+    const bundleComplete = typeof object.bundleComplete === 'boolean' ? object.bundleComplete : true;
+    const salePrice = price.cashPaymentPrice ?? price.couponPrice ?? price.membershipPrice ?? price.salePrice;
+    const shippingFee = price.shippingFee;
+    const totalCashPrice = numberField(object.totalCashPrice) ?? (salePrice !== undefined && shippingFee !== undefined ? salePrice + shippingFee : undefined);
+    const points = price.totalExpectedPoints ?? price.estimatedPoints;
+    const effectivePrice = price.effectivePrice ?? (totalCashPrice !== undefined && points !== undefined ? Math.max(0, totalCashPrice - points) : undefined);
+    const exclusionReasons: string[] = [];
+    if (!titleConsistent) exclusionReasons.push('인증 페이지 상품명이 요청 제품과 일치하지 않습니다.');
+    if (!bundleComplete) exclusionReasons.push('요청한 세트/패키지 전체 구성이 아닙니다.');
+    const offer: MarketOffer = {
+      id: `${market}:${url}`,
+      market,
+      title,
+      url,
+      currency: price.currency,
+      retrievedAt: completedAt,
+      verification: 'page_verified',
+      condition,
+      identityScore: titleConsistent ? 0.9 : 0.2,
+      bundleComplete,
+      eligible: exclusionReasons.length === 0,
+      conditions: stringArray(object.conditions),
+      riskFlags: stringArray(object.riskFlags),
+      exclusionReasons,
+    };
+    if (price.listPrice !== undefined) offer.listPrice = price.listPrice;
+    if (price.salePrice !== undefined) offer.salePrice = price.salePrice;
+    if (price.couponPrice !== undefined) offer.couponPrice = price.couponPrice;
+    if (price.membershipPrice !== undefined) offer.membershipPrice = price.membershipPrice;
+    const cardPrice = numberField(object.cardPrice);
+    if (cardPrice !== undefined) offer.cardPrice = cardPrice;
+    const cardName = stringField(object.cardName);
+    if (cardName) offer.cardName = cardName;
+    if (points !== undefined) offer.points = points;
+    if (price.shippingFee !== undefined) offer.shippingFee = price.shippingFee;
+    if (totalCashPrice !== undefined) offer.totalCashPrice = totalCashPrice;
+    if (effectivePrice !== undefined) offer.effectivePrice = effectivePrice;
+    if (price.availability) offer.availability = price.availability;
+    verifiedOffers.push(offer);
+
+    if (titleConsistent) {
+      localEvidence.push(relayEvidence(temporaryJob, temporaryJob.target, price, title, completedAt));
+      if (!primaryPrice || url === job.request.url) {
+        primaryPrice = price;
+        primaryTitle = title;
+      }
+    }
+  }
+
+  const target = mergeTarget(job, primaryTitle);
+  const evidence = normalizeEvidence([...job.evidence.filter((item) => item.acquisitionMethod !== 'local_relay'), ...localEvidence]);
+  const publicOffers = job.report?.offers ?? [];
+  const offersByUrl = new Map(publicOffers.map((offer) => [offer.url, offer]));
+  for (const offer of verifiedOffers) offersByUrl.set(offer.url, offer);
+  const offers = [...offersByUrl.values()];
+  const successCount = verifiedOffers.filter((offer) => offer.eligible).length;
+  const { bestOffers } = rankMarketOffers(offers, job.request.purchaseContext ?? {});
+  const report = buildProductReport({
+    target,
+    evidence,
+    ...(primaryPrice && hasUsefulCommerceFields(primaryPrice) ? { personalizedPrice: primaryPrice } : {}),
+    ...(job.researchContext?.intent ? { intent: job.researchContext.intent } : {}),
+    ...(job.researchContext?.identityConfidence !== undefined ? { identityConfidence: job.researchContext.identityConfidence } : {}),
+  });
+  report.offers = offers;
+  report.bestOffers = bestOffers;
+  if (job.researchContext?.recommendationCandidates?.length) {
+    report.recommendations = buildRecommendations({
+      question: job.request.question,
+      candidates: job.researchContext.recommendationCandidates,
+      offers,
+      ...(job.request.purchaseContext ? { purchaseContext: job.request.purchaseContext } : {}),
+    });
+  } else if (job.report?.recommendations) report.recommendations = job.report.recommendations;
+  if (job.report?.manualChecks) report.manualChecks = job.report.manualChecks;
+  if (successCount === 0) {
+    report.manualChecks = [
+      ...(report.manualChecks ?? []),
+      { type: 'login', message: '전용 브라우저의 로그인 상태와 상품 페이지 표시 여부를 직접 확인해야 합니다.', ...(job.request.url ? { url: job.request.url } : {}) },
+    ];
+  }
+  report.marketCoverage = (job.report?.marketCoverage ?? []).map((coverage) => {
+    const verified = verifiedOffers.filter((offer) => offer.market === coverage.market && offer.eligible).length;
+    return verified ? { ...coverage, verified, status: 'verified' as const } : coverage;
+  });
+
+  return {
+    ...job,
+    status: job.errors.length ? 'partial' : 'completed',
+    updatedAt: completedAt,
+    completedAt,
+    target,
+    ...(job.researchContext ? { researchContext: { ...job.researchContext, resolvedTarget: { ...target } } } : {}),
+    evidence,
+    sourceResults: [
+      ...job.sourceResults.filter((source) => source.source !== 'local_relay'),
+      { source: 'local_relay', success: successCount > 0, acquisitionMethod: 'local_relay', attemptedAt: completedAt, completedAt, evidence: localEvidence, ...(successCount ? {} : { error: 'No identity-matched authenticated offers were returned.' }) },
+    ],
+    relay: {
+      available: true,
+      used: true,
+      mode: 'local_authenticated',
+      message: `${successCount} authenticated read-only market offer(s) were verified; ${verifiedOffers.length - successCount} mismatched or incomplete offer(s) were excluded.`,
+    },
     report,
   };
 }

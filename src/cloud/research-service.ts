@@ -1,5 +1,7 @@
-import type { ResearchJob, ResearchRequest } from '../core/types.ts';
+import type { RelayCandidate, ResearchJob, ResearchRequest } from '../core/types.ts';
 import { toRelayProductHint } from '../relay/protocol.ts';
+import type { RelayTarget } from '../relay/protocol.ts';
+import { assertPublicUrl, isRelayDomainAllowed } from '../core/policy.ts';
 import {
   getPersistentRelayStatus,
   queuePersistentRelay,
@@ -74,7 +76,21 @@ export async function runCloudResearch(request: ResearchRequest, options: CloudR
 
   try {
     const targetHint = toRelayProductHint(waiting.researchContext?.resolvedTarget ?? waiting.target);
-    await queuePersistentRelay(options.store, waiting.id, request.url!, options.relaySecret!, nowMs(), 30_000, targetHint);
+    const discovered = (job.report?.offers ?? [])
+      .filter((offer) => {
+        try { return offer.eligible && isRelayDomainAllowed(assertPublicUrl(offer.url).hostname); } catch { return false; }
+      })
+      .sort((a, b) => Math.min(a.cardPrice ?? Infinity, a.totalCashPrice ?? Infinity, a.effectivePrice ?? Infinity)
+        - Math.min(b.cardPrice ?? Infinity, b.totalCashPrice ?? Infinity, b.effectivePrice ?? Infinity))
+      .map((offer) => ({ url: offer.url, market: offer.market }));
+    const uniqueCandidates: RelayCandidate[] = [...(request.relayCandidates ?? []), ...discovered]
+      .filter((candidate, index, values) => values.findIndex((value) => value.url === candidate.url) === index)
+      .slice(0, 8);
+    const targets: RelayTarget[] = uniqueCandidates.map((candidate) => {
+      const hint = candidate.targetHint as import('../relay/protocol.ts').RelayProductHint | undefined ?? targetHint;
+      return { url: candidate.url, market: candidate.market, ...(hint ? { targetHint: hint } : {}) };
+    });
+    await queuePersistentRelay(options.store, waiting.id, request.url!, options.relaySecret!, nowMs(), 5 * 60_000, targetHint, targets);
     return waiting;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

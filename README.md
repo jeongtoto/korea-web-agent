@@ -1,4 +1,4 @@
-# Korea Web Agent v0.3
+# Korea Web Agent v0.5
 
 Korea Web Agent is a read-only Korean product-research backend designed to be called from a dedicated Custom GPT. The primary experience is now natural-language product research inside ChatGPT; the existing PWA remains available as a diagnostic/manual testing surface.
 
@@ -8,7 +8,18 @@ Example:
 와이드뷰 43인치 4K V3 스탠드 어때?
 ```
 
-The agent resolves the product, gathers attributable public evidence, evaluates current price/reviews/specifications, and conditionally asks a locally authenticated PC browser for personalized Naver/Coupang price, coupon, points, shipping, and availability fields. It returns a conservative `BUY / WAIT / SKIP / INSUFFICIENT` result.
+The agent resolves an exact product or a recommendation category, gathers attributable public evidence, normalizes multi-market offers, and conditionally asks a locally authenticated PC browser to verify up to eight difficult commerce pages. It separates cash, owned-card, membership/coupon, points-adjusted, refurb/open-box, and used prices and returns a conservative `BUY / WAIT / SKIP / INSUFFICIENT` result plus Best 3 recommendations when appropriate.
+
+## v0.5 shopping decision behavior
+
+- Explicit market coverage for Naver, Coupang, KREAM, Danawa, Enuri, major open markets/retailers, official/offline discovery, overseas marketplaces, refurb/returns, and used marketplaces.
+- Exact SKU, variant, bundle, condition, availability, shipping, and verification tier are part of offer eligibility.
+- `totalCashPrice`, owned-card `cardPrice`, and points-adjusted `effectivePrice` are ranked separately.
+- A card promotion cannot win the owned-card ranking unless the request says the user owns that card.
+- Search metadata remains discovery-grade; authenticated page reads replace the same URL with a higher verification tier.
+- The signed read-only Relay can inspect a bounded batch of at most eight URLs in one browser session.
+- Category questions such as bedding selection produce up to five scored candidates and a Best 3 based on fit, quality, reviews, design, care, risk, and value.
+- `manualChecks` contains only login/CAPTCHA, card/membership ownership, offline quote, availability, or used-condition checks that require a person.
 
 ## v0.3 behavior
 
@@ -135,6 +146,21 @@ Query-only request:
 }
 ```
 
+Recommendation request with actual purchase context:
+
+```json
+{
+  "query": "에이스 하이테크 레드 침대에 어울리는 퀸 이불을 디자인, 품질, 리뷰, 관리, 가격까지 비교해 Best 3 추천해줘",
+  "purchaseContext": {
+    "ownedCards": ["삼성카드"],
+    "memberships": ["네이버플러스", "쿠팡 와우"],
+    "budget": 300000,
+    "region": "서울",
+    "preferences": ["세탁기 가능", "사계절", "먼지 적음"]
+  }
+}
+```
+
 Optional URL request:
 
 ```json
@@ -153,7 +179,7 @@ GET /api/agent/jobs/<job-id>
 Authorization: Bearer <KWA_ACTION_API_KEY>
 ```
 
-The final compact response includes resolved product identity, identity confidence/ambiguity, decision/confidence dimensions, public and personalized prices, relay status, key reasons, strengths/weaknesses, missing information, evidence summaries/source URLs, source coverage, and safe errors.
+The final compact response includes resolved identity, decision/confidence dimensions, legacy public/personalized prices, normalized `offers`, independent `bestOffers`, `marketCoverage`, Best 3+ `recommendations`, `manualChecks`, relay status, evidence summaries/source URLs, and safe errors.
 
 The legacy endpoints remain for PWA/debug compatibility:
 
@@ -241,6 +267,12 @@ The public research layer can query, when relevant:
 - Naver Shopping / Brand Store / SmartStore
 - Coupang
 - Danawa
+- KREAM and Enuri
+- 11st, Gmarket, Auction, SSG, and Lotte ON
+- official/offline dealer discovery
+- AliExpress and Temu
+- refurb, return, and display listings
+- Karrot, Joonggonara, and Bunjang
 - Naver Blog / Cafe
 - YouTube
 - Reddit/public communities
@@ -250,14 +282,16 @@ The public research layer can query, when relevant:
 
 Most Korean source families currently use public search metadata unless a direct page/structured-data or dedicated provider path succeeds. Direct sites may rate-limit server-side requests; the engine records blocked sources and degrades to other evidence instead of fabricating fields.
 
-## Current v0.3 limitations
+## Current limitations
 
 - The resolver is deterministic and conservative. Ambiguous products may require a model code or URL.
 - Search-result metadata remains weaker than directly retrieved product/review pages.
 - Site DOMs change; Naver/Coupang authenticated selectors include site-aware deterministic groups plus fallbacks, but they may require maintenance.
 - Historical price tracking is not yet a durable price database. The engine can use discoverable price/discount signals but does not promise complete all-time-low history.
-- Alternatives are not yet a dedicated recommendation subsystem; source evidence may expose them, but v0.3 prioritizes exact-product correctness first.
-- One persistent relay job is active at a time in the current serverless relay design.
+- Search engines and commerce sites can omit or stale-index conditional prices; `verification` and `retrievedAt` must be shown with the result.
+- Local/offline and used listings remain region-, availability-, and condition-dependent and require the emitted manual check.
+- Recommendation scoring is deterministic and evidence-aware, but visual fit is text-signal based unless the caller supplies explicit colors/materials/preferences.
+- One signed Relay batch is active at a time in the current serverless relay design; each batch is bounded to eight pages.
 
 ## Development and verification
 

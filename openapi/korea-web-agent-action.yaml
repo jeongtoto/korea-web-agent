@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Korea Web Agent
-  version: 0.4.0
-  description: Read-only Korean product research with optional authenticated local-browser pricing.
+  version: 0.5.0
+  description: Read-only multi-market Korean buying research with authenticated local-browser offer verification and category-aware Best 3 recommendations.
 servers:
   - url: https://korea-web-agent.netlify.app
 security:
@@ -32,6 +32,8 @@ paths:
                   format: uri
                   maxLength: 4000
                   description: Optional public product or Naver Shopping Live URL when the user supplied one.
+                purchaseContext:
+                  $ref: '#/components/schemas/PurchaseContext'
       responses:
         '200':
           description: Research completed without a pending authenticated-browser job.
@@ -134,6 +136,114 @@ components:
         liveStatus: { type: string }
         liveEndAt: { type: string }
         sourceUrl: { type: string, format: uri }
+    PurchaseContext:
+      type: object
+      additionalProperties: false
+      properties:
+        ownedCards:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 200 }
+          description: Cards the user actually owns. Never infer ownership from a displayed promotion.
+        memberships:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 200 }
+        budget: { type: number, exclusiveMinimum: 0 }
+        region: { type: string, maxLength: 200 }
+        preferences:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 200 }
+    MarketOffer:
+      type: object
+      required: [id, market, title, url, currency, retrievedAt, verification, condition, identityScore, bundleComplete, eligible, conditions, riskFlags, exclusionReasons]
+      properties:
+        id: { type: string }
+        market: { type: string }
+        title: { type: string }
+        url: { type: string, format: uri }
+        currency: { type: string }
+        retrievedAt: { type: string, format: date-time }
+        verification: { type: string, enum: [checkout_verified, page_verified, search_metadata, unverified] }
+        condition: { type: string, enum: [new, refurbished, open_box, display, used, unknown] }
+        identityScore: { type: number, minimum: 0, maximum: 1 }
+        bundleComplete: { type: boolean }
+        eligible: { type: boolean }
+        seller: { type: string }
+        bundleItems: { type: array, items: { type: string } }
+        listPrice: { type: number }
+        salePrice: { type: number }
+        couponPrice: { type: number }
+        membershipPrice: { type: number }
+        cardPrice: { type: number }
+        cardName: { type: string }
+        points: { type: number }
+        shippingFee: { type: number }
+        installationFee: { type: number }
+        totalCashPrice: { type: number }
+        effectivePrice: { type: number }
+        availability: { type: string }
+        conditions: { type: array, items: { type: string } }
+        riskFlags: { type: array, items: { type: string } }
+        exclusionReasons: { type: array, items: { type: string } }
+    RankedOffer:
+      type: object
+      required: [basis, rank, amount, offer, reasons]
+      properties:
+        basis: { type: string, enum: [cash, owned_card, effective, alternative_condition] }
+        rank: { type: integer, minimum: 1 }
+        amount: { type: number }
+        offer: { $ref: '#/components/schemas/MarketOffer' }
+        reasons: { type: array, items: { type: string } }
+    BestOffers:
+      type: object
+      properties:
+        cash: { $ref: '#/components/schemas/RankedOffer' }
+        ownedCard: { $ref: '#/components/schemas/RankedOffer' }
+        effective: { $ref: '#/components/schemas/RankedOffer' }
+        alternativeCondition: { $ref: '#/components/schemas/RankedOffer' }
+    MarketCoverage:
+      type: object
+      required: [market, attempted, found, verified, status]
+      properties:
+        market: { type: string }
+        attempted: { type: boolean }
+        found: { type: integer, minimum: 0 }
+        verified: { type: integer, minimum: 0 }
+        status: { type: string, enum: [verified, found_unverified, no_match, failed, not_attempted] }
+        message: { type: string }
+    Recommendation:
+      type: object
+      required: [rank, title, target, scores, bestFor, reasons, tradeoffs, confidence, preliminary]
+      properties:
+        rank: { type: integer, minimum: 1 }
+        title: { type: string }
+        target: { $ref: '#/components/schemas/ProductTarget' }
+        scores:
+          type: object
+          properties:
+            fit: { type: number }
+            quality: { type: number }
+            reviews: { type: number }
+            design: { type: number }
+            care: { type: number }
+            risk: { type: number }
+            value: { type: number }
+            overall: { type: number }
+        bestFor: { type: string }
+        reasons: { type: array, items: { type: string } }
+        tradeoffs: { type: array, items: { type: string } }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        preliminary: { type: boolean }
+        bestOffer: { $ref: '#/components/schemas/MarketOffer' }
+    ManualCheck:
+      type: object
+      required: [type, message]
+      properties:
+        type: { type: string, enum: [login, captcha, owned_card, membership, availability, offline_quote, used_condition] }
+        message: { type: string }
+        url: { type: string, format: uri }
     ConfidenceDimensions:
       type: object
       properties:
@@ -146,6 +256,7 @@ components:
     ProductCandidate:
       type: object
       properties:
+        target: { $ref: '#/components/schemas/ProductTarget' }
         title: { type: string }
         score: { type: number }
         sourceUrls:
@@ -170,6 +281,19 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProductCandidate'
+    ProductTarget:
+      type: object
+      required: [kind]
+      properties:
+        kind: { type: string, enum: [product, place, service, unknown] }
+        brand: { type: string }
+        name: { type: string }
+        model: { type: string }
+        variant: { type: string }
+        productId: { type: string }
+        liveId: { type: string }
+        sourceHost: { type: string }
+        canonicalUrl: { type: string, format: uri }
     RelaySummary:
       type: object
       required: [requested, available, used, mode]
@@ -231,6 +355,20 @@ components:
           $ref: '#/components/schemas/PriceSnapshot'
         personalizedPrice:
           $ref: '#/components/schemas/PriceSnapshot'
+        offers:
+          type: array
+          items: { $ref: '#/components/schemas/MarketOffer' }
+        bestOffers:
+          $ref: '#/components/schemas/BestOffers'
+        marketCoverage:
+          type: array
+          items: { $ref: '#/components/schemas/MarketCoverage' }
+        recommendations:
+          type: array
+          items: { $ref: '#/components/schemas/Recommendation' }
+        manualChecks:
+          type: array
+          items: { $ref: '#/components/schemas/ManualCheck' }
         relay:
           $ref: '#/components/schemas/RelaySummary'
         summary: { type: string }

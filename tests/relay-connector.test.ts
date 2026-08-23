@@ -77,3 +77,32 @@ test('connector returns idle on 204 poll without opening a browser', async () =>
   assert.equal(status, 'idle');
   assert.equal(driverCreated, false);
 });
+
+test('connector processes a signed multi-market batch sequentially in one read-only browser', async () => {
+  const now = Date.now();
+  const unsigned: UnsignedRelayJob = {
+    id: 'batch-1',
+    url: 'https://kream.co.kr/products/1',
+    targets: [
+      { url: 'https://kream.co.kr/products/1', market: 'KREAM' },
+      { url: 'https://www.coupang.com/vp/products/2', market: '쿠팡' },
+    ],
+    requestedFields: ['title', 'price'],
+    issuedAt: new Date(now - 1000).toISOString(),
+    expiresAt: new Date(now + 60_000).toISOString(),
+    nonce: 'batch-nonce-123',
+  };
+  const signed = { ...unsigned, signature: await signRelayJob(unsigned, secret) };
+  const driver = new FakeDriver();
+  const uploads: unknown[] = [];
+  const fakeFetch: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith('/api/relay/poll')) return new Response(JSON.stringify(signed), { status: 200 });
+    if (url.endsWith('/api/relay/result')) { uploads.push(JSON.parse(String(init?.body))); return new Response(null, { status: 204 }); }
+    throw new Error('unexpected');
+  };
+
+  await runConnectorIteration({ cloudUrl: 'https://agent.example', secret, fetchImpl: fakeFetch, driverFactory: async () => driver });
+  assert.deepEqual(driver.navigations, unsigned.targets?.map((target) => target.url));
+  assert.deepEqual((uploads[0] as any).result.offers.map((offer: any) => offer.market), ['KREAM', '쿠팡']);
+});

@@ -1,4 +1,8 @@
-const RELAY_ALLOWLIST = ['naver.com', 'coupang.com'] as const;
+const RELAY_ALLOWLIST = [
+  'naver.com', 'coupang.com', 'kream.co.kr', 'danawa.com', 'enuri.com',
+  '11st.co.kr', 'gmarket.co.kr', 'auction.co.kr', 'ssg.com', 'lotteon.com',
+  'aliexpress.com', 'temu.com', 'daangn.com', 'joongna.com', 'bunjang.co.kr',
+] as const;
 
 function isPrivateIpv4(hostname: string): boolean {
   const parts = hostname.split('.');

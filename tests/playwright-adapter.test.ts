@@ -292,3 +292,9 @@ test('mutation-like requested fields are rejected before browser navigation', as
   await assert.rejects(extractAuthenticatedFields(job(['price', 'purchase']), driver), /read-only|field/i);
   assert.equal(driver.navigatedTo.length, 0);
 });
+
+test('authenticated extraction refuses a redirect outside the commerce allowlist', async () => {
+  const driver = new FakeDriver();
+  driver.currentUrl = async () => 'https://evil.example/redirected';
+  await assert.rejects(extractAuthenticatedFields(job(), driver), /allowlist|commerce domain/i);
+});

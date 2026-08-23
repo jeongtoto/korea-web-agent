@@ -6,6 +6,9 @@ import {
   selectNaverLiveProductCard,
   type NaverLiveProductCard,
 } from './naver-live.ts';
+import { buildMarketOffer } from '../core/offer-engine.ts';
+import type { NormalizedTarget } from '../core/types.ts';
+import { assertPublicUrl, isRelayDomainAllowed } from '../core/policy.ts';
 
 export interface BrowserDriver {
   navigate(url: string): Promise<void>;
@@ -153,6 +156,10 @@ async function extractNaverLiveDeal(job: UnsignedRelayJob, driver: BrowserDriver
 export async function extractAuthenticatedFields(job: UnsignedRelayJob, driver: BrowserDriver): Promise<Record<string, unknown>> {
   validateRelayRequest(job);
   await driver.navigate(job.url);
+  if (driver.currentUrl) {
+    const current = assertPublicUrl(await driver.currentUrl());
+    if (!isRelayDomainAllowed(current.hostname)) throw new Error('Relay navigation left the allowlisted commerce domains');
+  }
 
   const output: Record<string, unknown> = {};
   const naverLiveView = isNaverLiveViewUrl(job.url);
@@ -163,6 +170,47 @@ export async function extractAuthenticatedFields(job: UnsignedRelayJob, driver: 
       continue;
     }
     if (field === 'liveDeal') continue;
+
+    if (field === 'commerceOffer') {
+      const hint = job.targetHint ?? {};
+      const target: NormalizedTarget = {
+        kind: 'product',
+        ...(hint.brand ? { brand: hint.brand } : {}),
+        ...(hint.name ? { name: hint.name } : {}),
+        ...(hint.model ? { model: hint.model } : {}),
+        ...(hint.variant ? { variant: hint.variant } : {}),
+        ...(hint.productId ? { productId: hint.productId } : {}),
+        ...(hint.liveId ? { liveId: hint.liveId } : {}),
+      };
+      let offer: ReturnType<typeof buildMarketOffer> = null;
+      for (let attempt = 0; attempt < 20 && !offer; attempt += 1) {
+        const title = normalizeText(await driver.readText(selectorsFor(job.url, 'title')));
+        const pageText = driver.readPageText ? await driver.readPageText() : await driver.readText(['body']);
+        if (hasManualVerificationChallenge(pageText)) {
+          throw new Error('manual_verification_required: Complete CAPTCHA or manual verification in the dedicated browser profile.');
+        }
+        offer = buildMarketOffer({ title: title ?? hint.name ?? '상품', url: job.url, snippet: (pageText ?? '').slice(0, 250_000) }, target, new Date().toISOString());
+        if (!offer && attempt < 19) await new Promise<void>((resolve) => setTimeout(resolve, 250));
+      }
+      if (offer) {
+        output.title = offer.title;
+        if (offer.listPrice !== undefined) output.listPrice = offer.listPrice;
+        if (offer.salePrice !== undefined) output.price = offer.salePrice;
+        if (offer.couponPrice !== undefined) output.couponPrice = offer.couponPrice;
+        if (offer.membershipPrice !== undefined) output.membershipPrice = offer.membershipPrice;
+        if (offer.cardPrice !== undefined) output.cardPrice = offer.cardPrice;
+        if (offer.cardName) output.cardName = offer.cardName;
+        if (offer.points !== undefined) output.estimatedPoints = offer.points;
+        if (offer.shippingFee !== undefined) output.shippingFee = offer.shippingFee;
+        if (offer.totalCashPrice !== undefined) output.totalCashPrice = offer.totalCashPrice;
+        if (offer.effectivePrice !== undefined) output.effectivePrice = offer.effectivePrice;
+        output.condition = offer.condition;
+        output.bundleComplete = offer.bundleComplete;
+        output.conditions = offer.conditions;
+        output.riskFlags = offer.riskFlags;
+      }
+      continue;
+    }
 
     const selectors = selectorsFor(job.url, field);
     if (!selectors.length) throw new Error(`No read-only extractor for field: ${field}`);

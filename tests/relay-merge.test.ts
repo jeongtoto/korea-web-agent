@@ -187,3 +187,60 @@ test('applyPersonalizedRelayResult preserves partial status when public-source e
   const merged = applyPersonalizedRelayResult(job, { price: 439000 }, '2026-08-17T00:00:10.000Z');
   assert.equal(merged.status, 'partial');
 });
+
+test('batch relay merges verified KREAM card and Naver points offers into separate winners', () => {
+  const job = baseJob();
+  job.request.purchaseContext = { ownedCards: ['삼성카드'] };
+  job.target = {
+    kind: 'product', brand: '와이드뷰', model: 'QWGE43UT1', variant: '43인치',
+    name: '와이드뷰 QWGE43UT1 EKWBYME78W V3 43인치 이동형 패키지',
+  };
+  job.researchContext = { identityConfidence: 0.95, resolvedTarget: { ...job.target } };
+
+  const merged = applyPersonalizedRelayResult(job, { offers: [
+    {
+      market: 'KREAM', url: 'https://kream.co.kr/products/1', title: `${job.target.name} 신품`,
+      price: 407200, cardPrice: 390000, cardName: '삼성카드', shippingFee: 0,
+      condition: 'new', bundleComplete: true, conditions: ['삼성카드 결제 조건'], riskFlags: [],
+    },
+    {
+      market: '네이버', url: 'https://brand.naver.com/widevu/products/1', title: `${job.target.name} 신품`,
+      price: 499000, estimatedPoints: 106650, shippingFee: 0,
+      condition: 'new', bundleComplete: true, conditions: [], riskFlags: ['적립 조건 확인'],
+    },
+  ] }, '2026-08-24T10:00:00.000Z');
+
+  assert.equal(merged.report?.offers?.length, 2);
+  assert.equal(merged.report?.bestOffers?.cash?.amount, 407200);
+  assert.equal(merged.report?.bestOffers?.ownedCard?.amount, 390000);
+  assert.equal(merged.report?.bestOffers?.effective?.amount, 392350);
+  assert.match(merged.relay.message ?? '', /2 authenticated/i);
+});
+
+test('batch relay verifies distinct recommendation candidates against their own signed identity hints', () => {
+  const job = baseJob();
+  const candidates = ['브랜드A 순면 퀸 이불', '브랜드B 모달 퀸 이불', '브랜드C 워싱 퀸 이불'].map((title, index) => ({
+    title,
+    score: 0.85 - index * 0.02,
+    sourceUrls: [`https://brand.naver.com/bedding/products/${index + 1}`],
+    target: { kind: 'product' as const, name: title, brand: title.split(' ')[0] },
+  }));
+  job.target = { ...candidates[0]!.target };
+  job.request.question = '레드 침대에 어울리는 퀸 이불 Best 3 추천';
+  job.researchContext = { identityConfidence: 0.8, resolvedTarget: { ...job.target }, recommendationMode: true, recommendationCandidates: candidates };
+
+  const merged = applyPersonalizedRelayResult(job, { offers: candidates.map((candidate, index) => ({
+    market: '네이버',
+    url: candidate.sourceUrls[0],
+    targetHint: { name: candidate.title, brand: candidate.target.brand },
+    title: `${candidate.title} 세탁가능 리뷰 4.${8 - index}`,
+    price: 120000 + index * 10000,
+    shippingFee: 0,
+    condition: 'new',
+    bundleComplete: true,
+  })) }, '2026-08-24T11:00:00.000Z');
+
+  assert.equal(merged.report?.offers?.filter((offer) => offer.eligible).length, 3);
+  assert.equal(merged.report?.recommendations?.length, 3);
+  assert.ok(merged.report?.recommendations?.every((recommendation) => recommendation.bestOffer));
+});

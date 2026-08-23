@@ -11,6 +11,7 @@ export const RELAY_READ_ONLY_FIELDS = [
   'shippingEta',
   'selectedOption',
   'availability',
+  'commerceOffer',
   'liveDeal',
 ] as const;
 
@@ -27,6 +28,12 @@ export const RELAY_PRODUCT_HINT_FIELDS = [
 
 export type RelayProductHintField = (typeof RELAY_PRODUCT_HINT_FIELDS)[number];
 export type RelayProductHint = Partial<Record<RelayProductHintField, string>>;
+
+export interface RelayTarget {
+  url: string;
+  market: string;
+  targetHint?: RelayProductHint;
+}
 
 const RELAY_PRODUCT_HINT_LIMITS: Record<RelayProductHintField, number> = {
   brand: 200,
@@ -54,6 +61,7 @@ export interface UnsignedRelayJob {
   url: string;
   requestedFields: RelayReadOnlyField[];
   targetHint?: RelayProductHint;
+  targets?: RelayTarget[];
   issuedAt: string;
   expiresAt: string;
   nonce: string;
@@ -137,6 +145,20 @@ export function validateRelayRequest(job: UnsignedRelayJob, nowMs = Date.now()):
 
   const url = assertPublicUrl(job.url);
   if (!isRelayDomainAllowed(url.hostname)) throw new Error('Relay domain is not allowlisted');
+
+  if (job.targets !== undefined) {
+    if (!Array.isArray(job.targets) || job.targets.length === 0 || job.targets.length > 8) throw new Error('Relay targets must contain one to eight entries');
+    const seen = new Set<string>();
+    for (const target of job.targets) {
+      if (!target || typeof target !== 'object' || Array.isArray(target)) throw new Error('Relay target is invalid');
+      const targetUrl = assertPublicUrl(target.url);
+      if (!isRelayDomainAllowed(targetUrl.hostname)) throw new Error('Relay target domain is not allowlisted');
+      if (seen.has(targetUrl.toString())) throw new Error('Relay targets must be unique');
+      seen.add(targetUrl.toString());
+      if (typeof target.market !== 'string' || !target.market.trim() || target.market.length > 100) throw new Error('Relay target market is invalid');
+      if (target.targetHint !== undefined) validateTargetHint(target.targetHint);
+    }
+  }
 
   const allowed = new Set<string>(RELAY_READ_ONLY_FIELDS);
   if (!Array.isArray(job.requestedFields) || job.requestedFields.length === 0) throw new Error('At least one read-only field is required');

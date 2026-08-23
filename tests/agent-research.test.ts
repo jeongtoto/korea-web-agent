@@ -108,7 +108,8 @@ test('purchase evaluation finds a relay-eligible seller when the resolved canoni
   assert.ok(searchQueries.length >= 2);
   assert.equal(observed.length, 1);
   assert.equal(observed[0]?.request.includeLocalRelay, true);
-  assert.match(observed[0]?.request.url ?? '', /coupang\.com/);
+  assert.match(observed[0]?.request.url ?? '', /gmarket\.co\.kr|coupang\.com/);
+  assert.ok((observed[0]?.request.relayCandidates?.length ?? 0) >= 1);
   assert.equal(result.relay.requested, true);
 });
 
@@ -163,4 +164,29 @@ test('shapeAgentResearchJob exposes a compact source-attributed result without s
   assert.equal(shaped.product.identityConfidence, 0.93);
   assert.equal(shaped.decision, 'INSUFFICIENT');
   assert.ok('sourceCoverage' in shaped);
+});
+
+test('category recommendation keeps multiple candidates and purchase context instead of failing as ambiguous', async () => {
+  const observed: Array<{ request: ResearchRequest; context: ResearchContext }> = [];
+  const hits = [
+    { title: '브랜드A 알러지케어 순면 퀸 차렵이불', url: 'https://brand.naver.com/a/products/1', snippet: '레드 침대 호텔식 이불 후기 4.8' },
+    { title: '브랜드B 모달 사계절 퀸 차렵이불', url: 'https://www.coupang.com/vp/products/2', snippet: '베이지 레드 배색 리뷰 4.7' },
+    { title: '브랜드C 워싱 순면 퀸 이불', url: 'https://kream.co.kr/products/3', snippet: '딥그레이 세탁기 가능 리뷰 4.6' },
+  ];
+  const result = await runAgentResearch({
+    query: '에이스 하이테크 레드에 어울리는 퀸 이불은 뭐로 살까? 베스트 3 추천',
+    purchaseContext: { budget: 300000, ownedCards: ['삼성카드'], preferences: ['세탁기 가능'] },
+  }, {
+    publicSearch: async () => hits,
+    cloudResearch: async (request, context) => { observed.push({ request, context }); return fakeJob(request, context); },
+  });
+
+  assert.equal(result.product.ambiguous, false);
+  assert.ok((observed[0]?.context.recommendationCandidates?.length ?? 0) >= 3);
+  assert.equal(observed[0]?.request.purchaseContext?.budget, 300000);
+});
+
+test('agent input rejects malformed or unbounded purchase context', async () => {
+  await assert.rejects(runAgentResearch({ query: '추천', purchaseContext: { ownedCards: Array(21).fill('카드') } }, dependencies([])), /purchaseContext/i);
+  await assert.rejects(runAgentResearch({ query: '추천', purchaseContext: { ownedCards: ['4111 1111 1111 1111'] } }, dependencies([])), /card names|card numbers/i);
 });

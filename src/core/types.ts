@@ -95,6 +95,8 @@ export interface ResearchContext {
   identityConfidence?: number;
   resolvedTarget?: NormalizedTarget;
   resolutionAmbiguous?: boolean;
+  recommendationMode?: boolean;
+  recommendationCandidates?: ProductCandidate[];
 }
 
 export interface ResearchRequest {
@@ -102,6 +104,113 @@ export interface ResearchRequest {
   url?: string;
   category?: 'product' | 'place' | 'service' | 'auto';
   includeLocalRelay?: boolean;
+  purchaseContext?: PurchaseContext;
+  relayCandidates?: RelayCandidate[];
+}
+
+export interface PurchaseContext {
+  ownedCards?: string[];
+  memberships?: string[];
+  budget?: number;
+  region?: string;
+  preferences?: string[];
+}
+
+export type OfferCondition = 'new' | 'refurbished' | 'open_box' | 'display' | 'used' | 'unknown';
+export type OfferVerification = 'checkout_verified' | 'page_verified' | 'search_metadata' | 'unverified';
+export type OfferPriceBasis = 'cash' | 'owned_card' | 'effective' | 'alternative_condition';
+
+export interface MarketOffer {
+  id: string;
+  market: string;
+  title: string;
+  url: string;
+  currency: string;
+  retrievedAt: string;
+  verification: OfferVerification;
+  condition: OfferCondition;
+  identityScore: number;
+  bundleComplete: boolean;
+  eligible: boolean;
+  seller?: string;
+  bundleItems?: string[];
+  listPrice?: number;
+  salePrice?: number;
+  couponPrice?: number;
+  membershipPrice?: number;
+  cardPrice?: number;
+  cardName?: string;
+  points?: number;
+  shippingFee?: number;
+  installationFee?: number;
+  totalCashPrice?: number;
+  effectivePrice?: number;
+  availability?: string;
+  warranty?: string;
+  returnPolicy?: string;
+  conditions: string[];
+  riskFlags: string[];
+  exclusionReasons: string[];
+}
+
+export interface RelayCandidate {
+  url: string;
+  market: string;
+  targetHint?: Partial<Pick<NormalizedTarget, 'brand' | 'name' | 'model' | 'variant' | 'productId' | 'liveId'>>;
+}
+
+export interface RankedOffer {
+  basis: OfferPriceBasis;
+  rank: number;
+  amount: number;
+  offer: MarketOffer;
+  reasons: string[];
+}
+
+export interface BestOffers {
+  cash?: RankedOffer;
+  ownedCard?: RankedOffer;
+  effective?: RankedOffer;
+  alternativeCondition?: RankedOffer;
+}
+
+export interface MarketCoverage {
+  market: string;
+  attempted: boolean;
+  found: number;
+  verified: number;
+  status: 'verified' | 'found_unverified' | 'no_match' | 'failed' | 'not_attempted';
+  message?: string;
+}
+
+export interface RecommendationScores {
+  fit: number;
+  quality: number;
+  reviews: number;
+  design: number;
+  care: number;
+  risk: number;
+  value: number;
+  overall: number;
+}
+
+export interface ProductRecommendation {
+  rank: number;
+  title: string;
+  target: NormalizedTarget;
+  scores: RecommendationScores;
+  bestFor: string;
+  reasons: string[];
+  tradeoffs: string[];
+  confidence: number;
+  preliminary: boolean;
+  bestOffer?: MarketOffer;
+}
+
+export interface ManualCheck {
+  type: 'login' | 'captcha' | 'owned_card' | 'membership' | 'availability' | 'offline_quote' | 'used_condition';
+  message: string;
+  url?: string;
 }
 
 export interface ResearchSourceResult {
@@ -173,6 +282,11 @@ export interface ProductReport {
   sourceCount: number;
   price?: PriceSnapshot;
   personalizedPrice?: PriceSnapshot;
+  offers?: MarketOffer[];
+  bestOffers?: BestOffers;
+  marketCoverage?: MarketCoverage[];
+  recommendations?: ProductRecommendation[];
+  manualChecks?: ManualCheck[];
 }
 
 export type ResearchJobStatus = 'queued' | 'running' | 'completed' | 'partial' | 'failed';
