@@ -84,7 +84,7 @@ class DelayedNaverLiveViewDriver implements BrowserDriver {
     this.reads.push([...selectors]);
     if (!selectors.includes('body')) return null;
     this.bodyReads += 1;
-    if (this.bodyReads < 3) return null;
+    if (this.bodyReads < 3) return '네이버 쇼핑라이브 로딩 중';
     return `
       상품금액 720,000원
       판매자 즉시할인 -221,000원
@@ -157,7 +157,7 @@ test('Naver Shopping Live view extraction converts checkout labels into normaliz
   assert.deepEqual(driver.reads, [['body']]);
 });
 
-test('Naver Shopping Live view extraction waits for delayed SPA body content before giving up', async () => {
+test('Naver Shopping Live view extraction waits for delayed SPA commerce labels before giving up', async () => {
   const url = 'https://view.shoppinglive.naver.com/lives/1985890';
   const driver = new DelayedNaverLiveViewDriver();
   const result = await extractAuthenticatedFields(job(['liveDeal'], url), driver);
