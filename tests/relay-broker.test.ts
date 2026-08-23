@@ -27,9 +27,16 @@ test('broker is offline until a PC connector polls, then reports online for the 
 
 test('broker queues a signed read-only job and resolves normalized personalized price result', async () => {
   const broker = new RelayBroker({ secret, timeoutMs: 2_000 });
-  const resultPromise = broker.extract(url);
+  const targetHint = {
+    brand: '와이드뷰',
+    name: '와이드무빙뷰 삼탠바이미V3 43인치 UHD 4K',
+    model: 'QWGE43UT1',
+    variant: 'EKWBYME78W(V3) 43인치',
+  };
+  const resultPromise = broker.extract(url, targetHint as never);
   const job = await waitForJob(broker);
   assert.equal(job.url, url);
+  assert.deepEqual((job as any).targetHint, targetHint);
   assert.ok(job.requestedFields.includes('membershipPrice'));
   assert.equal(await verifyRelayJob(job, secret), true);
 

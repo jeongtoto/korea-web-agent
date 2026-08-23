@@ -2,6 +2,7 @@ import type { PriceSnapshot } from '../core/types.ts';
 import {
   sanitizeRelayResult,
   signRelayJob,
+  type RelayProductHint,
   type RelayReadOnlyField,
   type SignedRelayJob,
   type UnsignedRelayJob,
@@ -90,12 +91,13 @@ export class RelayBroker {
     return null;
   }
 
-  async extract(url: string): Promise<PriceSnapshot> {
+  async extract(url: string, targetHint?: RelayProductHint): Promise<PriceSnapshot> {
     const now = this.#now();
     const unsigned: UnsignedRelayJob = {
       id: this.#idFactory(),
       url,
       requestedFields: [...DEFAULT_FIELDS],
+      ...(targetHint ? { targetHint } : {}),
       issuedAt: new Date(now).toISOString(),
       expiresAt: new Date(now + Math.min(this.#timeoutMs + 15_000, 10 * 60_000)).toISOString(),
       nonce: crypto.randomUUID(),

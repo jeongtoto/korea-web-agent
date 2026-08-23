@@ -17,11 +17,12 @@ import { fetchDirectPage, type DirectPageResult } from '../providers/direct-page
 import { searchDuckDuckGo } from '../providers/duckduckgo.ts';
 import { searchCrossref } from '../providers/crossref.ts';
 import type { SearchHit } from '../providers/index.ts';
+import { toRelayProductHint, type RelayProductHint } from '../relay/protocol.ts';
 import { buildSourcePlan, shouldUseAcademicResearch, type SourceQuery } from '../providers/source-plan.ts';
 
 export interface RelayClient {
   isAvailable(): Promise<boolean>;
-  extract(url: string): Promise<PriceSnapshot>;
+  extract(url: string, targetHint?: RelayProductHint): Promise<PriceSnapshot>;
 }
 
 export interface ResearchDependencies {
@@ -322,7 +323,7 @@ export async function runResearch(
       relay.available = await deps.relayClient.isAvailable();
       if (relay.available) {
         const startedAt = timestamp(deps);
-        personalizedPrice = await deps.relayClient.extract(request.url);
+        personalizedPrice = await deps.relayClient.extract(request.url, toRelayProductHint(target));
         const localEvidence = relayEvidence(request.url, personalizedPrice, timestamp(deps));
         evidence.push(localEvidence);
         sourceResults.push(sourceResult('local_relay', true, startedAt, timestamp(deps), [localEvidence]));

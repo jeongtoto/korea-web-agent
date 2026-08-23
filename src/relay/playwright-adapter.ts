@@ -1,8 +1,19 @@
 import { validateRelayRequest, type UnsignedRelayJob } from './protocol.ts';
+import {
+  hasManualVerificationChallenge,
+  isNaverLiveCommerceReady,
+  parseNaverLiveDeal,
+  selectNaverLiveProductCard,
+  type NaverLiveProductCard,
+} from './naver-live.ts';
 
 export interface BrowserDriver {
   navigate(url: string): Promise<void>;
   readText(selectors: readonly string[]): Promise<string | null>;
+  readNaverLiveProductCards?(): Promise<NaverLiveProductCard[]>;
+  openNaverLiveProductCard?(card: NaverLiveProductCard): Promise<void>;
+  readPageText?(): Promise<string | null>;
+  currentUrl?(): Promise<string>;
   close(): Promise<void>;
 }
 
@@ -44,7 +55,6 @@ const COUPANG_SELECTORS: SiteSelectorMap = {
   availability: ['[class*="out-of-stock"]', '[class*="stock"]', '[class*="Availability"]'],
 };
 
-const NAVER_LIVE_COMMERCE_READY = /(?:상품금액|판매자\s*즉시할인|쿠폰할인|카드사\s*결제할인|최대\s*할인가|최대\s*적립\s*포인트)/i;
 const NAVER_LIVE_READ_INTERVAL_MS = 250;
 const NAVER_LIVE_MAX_READ_ATTEMPTS = 33;
 
@@ -70,14 +80,6 @@ function parseKrw(text: string | null): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
-function parseCapturedKrw(text: string, pattern: RegExp): number | undefined {
-  const match = text.match(pattern);
-  const raw = match?.[1];
-  if (!raw) return undefined;
-  const value = Number(raw.replace(/,/g, ''));
-  return Number.isFinite(value) ? value : undefined;
-}
-
 function normalizeText(text: string | null): string | undefined {
   const normalized = text?.replace(/\s+/g, ' ').trim();
   return normalized || undefined;
@@ -100,62 +102,52 @@ function isNaverLiveViewUrl(url: string): boolean {
   return naverLiveId(url) !== undefined;
 }
 
-async function waitForNaverLiveCommerceText(driver: BrowserDriver): Promise<string | null> {
+async function waitForNaverLiveDetailText(driver: BrowserDriver): Promise<string | null> {
+  let lastText: string | null = null;
   for (let attempt = 0; attempt < NAVER_LIVE_MAX_READ_ATTEMPTS; attempt += 1) {
-    const pageText = await driver.readText(['body']);
-    if (pageText && NAVER_LIVE_COMMERCE_READY.test(pageText)) return pageText;
+    const pageText = driver.readPageText
+      ? await driver.readPageText()
+      : await driver.readText(['body']);
+    if (pageText) lastText = pageText;
+    if (hasManualVerificationChallenge(pageText)) {
+      throw new Error('manual_verification_required: Complete CAPTCHA or manual verification in the dedicated browser profile.');
+    }
+    if (isNaverLiveCommerceReady(pageText)) return pageText;
     if (attempt + 1 < NAVER_LIVE_MAX_READ_ATTEMPTS) {
       await new Promise<void>((resolve) => setTimeout(resolve, NAVER_LIVE_READ_INTERVAL_MS));
     }
   }
-  return null;
+  return lastText;
 }
 
-function parseNaverLiveDeal(url: string, text: string): Record<string, unknown> {
-  const listPrice = parseCapturedKrw(text, /상품금액\s*([0-9][0-9,]*)\s*원/i);
-  const sellerInstantDiscount = parseCapturedKrw(text, /판매자\s*즉시할인\s*-?\s*([0-9][0-9,]*)\s*원/i);
-  const couponDiscount = parseCapturedKrw(text, /쿠폰할인(?:\([^\n)]*\))?\s*-?\s*([0-9][0-9,]*)\s*원/i);
-  const cardInstantDiscount = parseCapturedKrw(text, /카드사\s*결제할인(?:\([^\n)]*\))?\s*-?\s*([0-9][0-9,]*)\s*원/i);
-  const explicitCashPaymentPrice = parseCapturedKrw(text, /최대\s*할인가\s*([0-9][0-9,]*)\s*원/i);
-  const totalExpectedPoints = parseCapturedKrw(text, /최대\s*적립\s*포인트\s*([0-9][0-9,]*)\s*원/i);
-  const shippingFee = /무료\s*배송/i.test(text)
-    ? 0
-    : parseCapturedKrw(text, /배송비\s*([0-9][0-9,]*)\s*원/i);
+async function extractNaverLiveDeal(job: UnsignedRelayJob, driver: BrowserDriver): Promise<Record<string, unknown>> {
+  for (let attempt = 0; attempt < NAVER_LIVE_MAX_READ_ATTEMPTS; attempt += 1) {
+    const liveText = await driver.readText(['body']);
+    if (hasManualVerificationChallenge(liveText)) {
+      throw new Error('manual_verification_required: Complete CAPTCHA or manual verification in the dedicated browser profile.');
+    }
+    if (liveText && isNaverLiveCommerceReady(liveText)) return parseNaverLiveDeal(job.url, liveText);
 
-  const couponPrice = listPrice !== undefined && sellerInstantDiscount !== undefined && couponDiscount !== undefined
-    ? Math.max(0, listPrice - sellerInstantDiscount - couponDiscount)
-    : undefined;
-  const computedCashPaymentPrice = listPrice !== undefined
-      && sellerInstantDiscount !== undefined
-      && couponDiscount !== undefined
-      && cardInstantDiscount !== undefined
-    ? Math.max(0, listPrice - sellerInstantDiscount - couponDiscount - cardInstantDiscount + (shippingFee ?? 0))
-    : undefined;
-  const cashPaymentPrice = explicitCashPaymentPrice ?? computedCashPaymentPrice;
-  const effectivePrice = cashPaymentPrice !== undefined && totalExpectedPoints !== undefined
-    ? Math.max(0, cashPaymentPrice - totalExpectedPoints)
-    : undefined;
+    if (job.targetHint && driver.readNaverLiveProductCards && driver.openNaverLiveProductCard) {
+      const cards = await driver.readNaverLiveProductCards();
+      if (cards.length) {
+        const selected = selectNaverLiveProductCard(cards, job.targetHint);
+        if (!selected) return parseNaverLiveDeal(job.url, '');
+        await driver.openNaverLiveProductCard(selected);
+        const detailText = await waitForNaverLiveDetailText(driver);
+        const sourceUrl = driver.currentUrl ? await driver.currentUrl() : undefined;
+        return parseNaverLiveDeal(job.url, `${selected.title}\n${detailText ?? ''}`, {
+          title: selected.title,
+          ...(sourceUrl ? { sourceUrl } : {}),
+        });
+      }
+    }
 
-  const output: Record<string, unknown> = {
-    dealType: 'naver_shopping_live',
-    liveId: naverLiveId(url),
-  };
-  if (listPrice !== undefined) output.listPrice = listPrice;
-  if (sellerInstantDiscount !== undefined) output.sellerInstantDiscount = sellerInstantDiscount;
-  if (couponDiscount !== undefined) output.couponDiscount = couponDiscount;
-  if (cardInstantDiscount !== undefined) output.cardInstantDiscount = cardInstantDiscount;
-  if (couponPrice !== undefined) output.couponPrice = couponPrice;
-  if (cashPaymentPrice !== undefined) {
-    output.cashPaymentPrice = cashPaymentPrice;
-    output.salePrice = cashPaymentPrice;
+    if (attempt + 1 < NAVER_LIVE_MAX_READ_ATTEMPTS) {
+      await new Promise<void>((resolve) => setTimeout(resolve, NAVER_LIVE_READ_INTERVAL_MS));
+    }
   }
-  if (totalExpectedPoints !== undefined) {
-    output.totalExpectedPoints = totalExpectedPoints;
-    output.estimatedPoints = totalExpectedPoints;
-  }
-  if (effectivePrice !== undefined) output.effectivePrice = effectivePrice;
-  if (shippingFee !== undefined) output.shippingFee = shippingFee;
-  return output;
+  return parseNaverLiveDeal(job.url, '');
 }
 
 export async function extractAuthenticatedFields(job: UnsignedRelayJob, driver: BrowserDriver): Promise<Record<string, unknown>> {
@@ -167,8 +159,7 @@ export async function extractAuthenticatedFields(job: UnsignedRelayJob, driver: 
   for (const field of job.requestedFields) {
     if (naverLiveView) {
       if (field !== 'liveDeal') continue;
-      const pageText = await waitForNaverLiveCommerceText(driver);
-      if (pageText) Object.assign(output, parseNaverLiveDeal(job.url, pageText));
+      Object.assign(output, await extractNaverLiveDeal(job, driver));
       continue;
     }
     if (field === 'liveDeal') continue;
@@ -208,7 +199,19 @@ export async function createPlaywrightBrowserDriver(options: PlaywrightDriverOpt
   if (options.executablePath) launchOptions.executablePath = options.executablePath;
 
   const context = await playwright.chromium.launchPersistentContext(options.profileDir, launchOptions);
-  const page = context.pages()[0] ?? await context.newPage();
+  let page = context.pages()[0] ?? await context.newPage();
+
+  function validatedProductDestination(value: string | null): string | null {
+    if (!value) return null;
+    try {
+      const parsed = new URL(value, page.url());
+      if (parsed.protocol !== 'https:' || parsed.hostname.toLowerCase() !== 'product.shoppinglive.naver.com') return null;
+      if (parsed.pathname !== '/bridge/v4/product/shopping') return null;
+      return parsed.toString();
+    } catch {
+      return null;
+    }
+  }
 
   return {
     async navigate(url: string) {
@@ -227,6 +230,60 @@ export async function createPlaywrightBrowserDriver(options: PlaywrightDriverOpt
         }
       }
       return null;
+    },
+    async readNaverLiveProductCards() {
+      const links = page.locator('a[href*="product.shoppinglive.naver.com/bridge/v4/product/shopping"]');
+      const count = Math.min(await links.count(), 100);
+      const cards: NaverLiveProductCard[] = [];
+      for (let index = 0; index < count; index += 1) {
+        const link = links.nth(index);
+        try {
+          if (!await link.isVisible()) continue;
+          const destinationUrl = validatedProductDestination(await link.getAttribute('href'));
+          if (!destinationUrl) continue;
+          let title = (await link.textContent({ timeout: 1_500 }) ?? '').replace(/\s+/g, ' ').trim();
+          let ancestor = link;
+          for (let depth = 0; depth < 8 && (!title || title === '상품 상세 페이지' || !/원/.test(title)); depth += 1) {
+            ancestor = ancestor.locator('xpath=..');
+            const candidate = (await ancestor.textContent({ timeout: 1_500 }) ?? '').replace(/\s+/g, ' ').trim();
+            if (candidate.length >= 20 && candidate.length <= 700) title = candidate;
+          }
+          if (!title || title.length > 700) continue;
+          cards.push({ locatorIndex: index, title, destinationUrl });
+        } catch {
+          // Ignore a card that disappears while the SPA updates; only stable deterministic cards are candidates.
+        }
+      }
+      return cards;
+    },
+    async openNaverLiveProductCard(card: NaverLiveProductCard) {
+      const links = page.locator('a[href*="product.shoppinglive.naver.com/bridge/v4/product/shopping"]');
+      if (card.locatorIndex < 0 || card.locatorIndex >= await links.count()) throw new Error('Naver Live product card is no longer available');
+      const link = links.nth(card.locatorIndex);
+      if (!await link.isVisible()) throw new Error('Naver Live product card is no longer visible');
+      const destinationUrl = validatedProductDestination(await link.getAttribute('href'));
+      if (!destinationUrl || destinationUrl !== card.destinationUrl) throw new Error('Naver Live product card destination changed before navigation');
+
+      const newPagePromise = context.waitForEvent('page', { timeout: 7_000 }).catch(() => null);
+      await link.click({ timeout: 15_000 });
+      const openedPage = await newPagePromise;
+      if (openedPage) page = openedPage;
+      await page.waitForLoadState('domcontentloaded', { timeout: 30_000 }).catch(() => undefined);
+    },
+    async readPageText() {
+      const texts: string[] = [];
+      for (const frame of page.frames()) {
+        try {
+          const value = await frame.locator('body').textContent({ timeout: 2_000 });
+          if (typeof value === 'string' && value.trim()) texts.push(value);
+        } catch {
+          // Cross-origin or transient frames are skipped; no frame content is returned to cloud.
+        }
+      }
+      return texts.length ? texts.join('\n') : null;
+    },
+    async currentUrl() {
+      return page.url();
     },
     async close() {
       await context.close();

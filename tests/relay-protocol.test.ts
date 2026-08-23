@@ -24,11 +24,40 @@ function validJob(overrides: Partial<UnsignedRelayJob> = {}): UnsignedRelayJob {
 }
 
 test('relay job signature verifies only with the same canonical payload and secret', async () => {
-  const unsigned = validJob();
+  const unsigned = validJob({
+    targetHint: {
+      name: '와이드무빙뷰 삼탠바이미V3 43인치 UHD 4K',
+      model: 'QWGE43UT1',
+      variant: 'EKWBYME78W(V3) 43인치',
+      liveId: '1985890',
+    },
+  } as Partial<UnsignedRelayJob>);
   const signature = await signRelayJob(unsigned, secret);
   assert.equal(await verifyRelayJob({ ...unsigned, signature }, secret, now), true);
   assert.equal(await verifyRelayJob({ ...unsigned, url: 'https://www.coupang.com/vp/products/1', signature }, secret, now), false);
+  assert.equal(await verifyRelayJob({
+    ...unsigned,
+    targetHint: { ...(unsigned as any).targetHint, variant: '32인치 V3' },
+    signature,
+  } as never, secret, now), false);
   assert.equal(await verifyRelayJob({ ...unsigned, signature }, `${secret}-wrong`, now), false);
+});
+
+test('relay request accepts only bounded allowlisted product identity hints', () => {
+  assert.doesNotThrow(() => validateRelayRequest(validJob({
+    targetHint: {
+      brand: '와이드뷰',
+      name: '와이드무빙뷰 삼탠바이미V3 43인치 UHD 4K',
+      model: 'QWGE43UT1',
+      variant: 'EKWBYME78W(V3) 43인치',
+      liveId: '1985890',
+    },
+  } as Partial<UnsignedRelayJob>), now));
+
+  assert.throws(() => validateRelayRequest(validJob({ targetHint: {} } as Partial<UnsignedRelayJob>), now), /target.?hint|identity hint/i);
+  assert.throws(() => validateRelayRequest(validJob({ targetHint: { model: 43 } } as never), now), /target.?hint|identity hint/i);
+  assert.throws(() => validateRelayRequest(validJob({ targetHint: { name: '제품', cookie: 'SID=secret' } } as never), now), /target.?hint|identity hint/i);
+  assert.throws(() => validateRelayRequest(validJob({ targetHint: { name: '가'.repeat(501) } } as never), now), /target.?hint|identity hint/i);
 });
 
 test('relay request accepts the Naver liveDeal read-only field on an allowlisted live URL', () => {

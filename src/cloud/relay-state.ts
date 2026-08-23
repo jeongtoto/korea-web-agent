@@ -1,6 +1,12 @@
 import type { ResearchJob } from '../core/types.ts';
 import { applyPersonalizedRelayResult } from '../relay/merge.ts';
-import { RELAY_READ_ONLY_FIELDS, signRelayJob, type SignedRelayJob, type UnsignedRelayJob } from '../relay/protocol.ts';
+import {
+  RELAY_READ_ONLY_FIELDS,
+  signRelayJob,
+  type RelayProductHint,
+  type SignedRelayJob,
+  type UnsignedRelayJob,
+} from '../relay/protocol.ts';
 
 export interface JsonKeyValueStore {
   getJSON<T>(key: string): Promise<T | null>;
@@ -63,6 +69,7 @@ export async function queuePersistentRelay(
   secret: string,
   nowMs = Date.now(),
   timeoutMs = DEFAULT_RELAY_TIMEOUT_MS,
+  targetHint?: RelayProductHint,
 ): Promise<SignedRelayJob> {
   const existing = await store.getJSON<PendingRelayRecord>(PENDING_KEY);
   if (existing && !isExpired(existing.job, nowMs)) throw new Error('Persistent relay is busy with another active job');
@@ -72,6 +79,7 @@ export async function queuePersistentRelay(
     id: crypto.randomUUID(),
     url,
     requestedFields: [...RELAY_READ_ONLY_FIELDS],
+    ...(targetHint ? { targetHint } : {}),
     issuedAt: new Date(nowMs).toISOString(),
     expiresAt: new Date(nowMs + Math.min(Math.max(1, timeoutMs), 10 * 60_000)).toISOString(),
     nonce: crypto.randomUUID(),

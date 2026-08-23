@@ -101,6 +101,45 @@ test('Naver live deal fields survive relay merge as explicit payment and effecti
   assert.equal(price?.liveId, '1985890');
 });
 
+test('Naver live visible commercial title can confirm a resolved model whose codes are not rendered', () => {
+  const job = baseJob();
+  job.request = {
+    question: '와이드뷰 QWGE43UT1 + EKWBYME78W(V3) 지금 사도 돼?',
+    url: 'https://view.shoppinglive.naver.com/lives/1985890',
+    includeLocalRelay: true,
+    category: 'product',
+  };
+  job.target = {
+    kind: 'product',
+    brand: '와이드뷰',
+    name: '와이드무빙뷰 QWGE43UT1 이동형 패키지',
+    model: 'QWGE43UT1',
+    variant: 'EKWBYME78W(V3) 43인치 UHD 4K',
+    liveId: '1985890',
+    canonicalUrl: 'https://view.shoppinglive.naver.com/lives/1985890',
+  };
+  job.researchContext = {
+    identityConfidence: 0.95,
+    resolvedTarget: { ...job.target },
+    resolutionAmbiguous: false,
+  };
+
+  const merged = applyPersonalizedRelayResult(job, {
+    title: '와이드무빙뷰 화이트에디션 삼탠바이미V3 셋트 QLED 109cm(43인치) UHD 4K 스마트 이동식 TV 유압식 높이조절 중소바이미 자가설치 720,000원 30% 할인 499,000원 네이버 배송 무료배송',
+    listPrice: 720000,
+    salePrice: 499000,
+    totalExpectedPoints: 106650,
+    shippingFee: 0,
+    dealType: 'naver_shopping_live',
+    liveId: '1985890',
+  }, '2026-08-23T10:00:00.000Z');
+
+  assert.equal(merged.status, 'completed');
+  assert.equal(merged.report?.personalizedPrice?.salePrice, 499000);
+  assert.equal(merged.report?.personalizedPrice?.totalExpectedPoints, 106650);
+  assert.equal(merged.target.name?.includes('109cm(43인치)'), true);
+});
+
 test('relay title can improve identity without fabricating personalized price coverage', () => {
   const merged = applyPersonalizedRelayResult(baseJob(), {
     title: '밀도 원목 수납침대 K',
