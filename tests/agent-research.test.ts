@@ -78,6 +78,40 @@ test('query-only purchase evaluation resolves the product and automatically requ
   assert.equal(result.relay.requested, true);
 });
 
+test('purchase evaluation finds a relay-eligible seller when the resolved canonical URL is not relay eligible', async () => {
+  const observed: Array<{ request: ResearchRequest; context: ResearchContext }> = [];
+  const searchQueries: string[] = [];
+  const result = await runAgentResearch({
+    query: '와이드뷰 QWGE43UT1 43인치 이동형 패키지 지금 사도 되는지 가격 쿠폰 멤버십까지 조사해줘',
+  }, {
+    publicSearch: async (query) => {
+      searchQueries.push(query);
+      if (searchQueries.length === 1) {
+        return [{
+          title: '와이드뷰 QWGE43UT1 43인치 V3 이동형 패키지',
+          url: 'https://item.gmarket.co.kr/Item?goodsCode=4521501632',
+          snippet: 'QWGE43UT1 EKWBYME78W V3 43인치',
+        }];
+      }
+      return [{
+        title: '와이드뷰 QWGE43UT1 43인치 V3 이동형 패키지',
+        url: 'https://www.coupang.com/vp/products/1234567890',
+        snippet: 'QWGE43UT1 EKWBYME78W V3 43인치',
+      }];
+    },
+    cloudResearch: async (request, context) => {
+      observed.push({ request, context });
+      return fakeJob(request, context);
+    },
+  });
+
+  assert.ok(searchQueries.length >= 2);
+  assert.equal(observed.length, 1);
+  assert.equal(observed[0]?.request.includeLocalRelay, true);
+  assert.match(observed[0]?.request.url ?? '', /coupang\.com/);
+  assert.equal(result.relay.requested, true);
+});
+
 test('spec-only product question resolves product but does not request PC relay', async () => {
   const observed: Array<{ request: ResearchRequest; context: ResearchContext }> = [];
   const result = await runAgentResearch({ query: '와이드뷰 V3 43인치 패널 스펙 알려줘' }, dependencies(observed));
