@@ -1,4 +1,5 @@
 import type { ResearchJob, ResearchRequest } from '../core/types.ts';
+import { toRelayProductHint } from '../relay/protocol.ts';
 import {
   getPersistentRelayStatus,
   queuePersistentRelay,
@@ -72,7 +73,8 @@ export async function runCloudResearch(request: ResearchRequest, options: CloudR
   await saveResearchJob(options.store, waiting);
 
   try {
-    await queuePersistentRelay(options.store, waiting.id, request.url!, options.relaySecret!, nowMs());
+    const targetHint = toRelayProductHint(waiting.researchContext?.resolvedTarget ?? waiting.target);
+    await queuePersistentRelay(options.store, waiting.id, request.url!, options.relaySecret!, nowMs(), 30_000, targetHint);
     return waiting;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

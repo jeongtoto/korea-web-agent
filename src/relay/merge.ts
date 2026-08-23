@@ -2,6 +2,7 @@ import { normalizeEvidence } from '../core/evidence.ts';
 import { matchEvidenceToProduct } from '../core/product-match.ts';
 import type { EvidenceItem, NormalizedTarget, PriceSnapshot, ResearchJob } from '../core/types.ts';
 import { buildProductReport } from '../report/product-report.ts';
+import { selectNaverLiveProductCard } from './naver-live.ts';
 import { sanitizeRelayResult } from './protocol.ts';
 
 function numberField(value: unknown): number | undefined {
@@ -93,6 +94,32 @@ function relayTitleConsistent(job: ResearchJob, title: string): boolean {
   const target = job.target;
   const hasResolvedDescriptors = Boolean(target.name || target.model || target.variant);
   if (!hasResolvedDescriptors) return true;
+
+  let isNaverLive = false;
+  try {
+    const parsed = new URL(job.request.url ?? '');
+    isNaverLive = parsed.hostname.toLowerCase() === 'view.shoppinglive.naver.com'
+      && /^\/lives\/\d+(?:\/|$)/.test(parsed.pathname);
+  } catch {
+    // The research request validator handles malformed URLs elsewhere.
+  }
+  if (isNaverLive) {
+    const hint = {
+      ...(target.brand ? { brand: target.brand } : {}),
+      ...(target.name ? { name: target.name } : {}),
+      ...(target.model ? { model: target.model } : {}),
+      ...(target.variant ? { variant: target.variant } : {}),
+      ...(target.productId ? { productId: target.productId } : {}),
+      ...(target.liveId ? { liveId: target.liveId } : {}),
+    };
+    const matched = selectNaverLiveProductCard([{
+      locatorIndex: 0,
+      title,
+      destinationUrl: 'https://product.shoppinglive.naver.com/bridge/v4/product/shopping',
+    }], hint);
+    if (matched) return true;
+  }
+
   const descriptorTarget: NormalizedTarget = {
     kind: 'product',
     ...(target.brand ? { brand: target.brand } : {}),

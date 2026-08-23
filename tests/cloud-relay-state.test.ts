@@ -35,7 +35,14 @@ function job(): ResearchJob {
 test('persistent relay survives independent store callers and completes the stored research job', async () => {
   const store = new MemoryStore();
   await saveResearchJob(store, job());
-  const signed = await queuePersistentRelay(store, 'research-1', URL, SECRET, 1_000);
+  const targetHint = {
+    brand: '와이드뷰',
+    name: '와이드무빙뷰 삼탠바이미V3 43인치 UHD 4K',
+    model: 'QWGE43UT1',
+    variant: 'EKWBYME78W(V3) 43인치',
+  };
+  const signed = await queuePersistentRelay(store, 'research-1', URL, SECRET, 1_000, 30_000, targetHint);
+  assert.deepEqual((signed as any).targetHint, targetHint);
 
   await markPersistentConnectorSeen(store, 1_100);
   const status = await getPersistentRelayStatus(store, 1_200, 500);

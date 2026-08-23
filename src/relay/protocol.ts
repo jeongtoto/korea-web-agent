@@ -1,4 +1,5 @@
 import { assertPublicUrl, isRelayDomainAllowed } from '../core/policy.ts';
+import type { NormalizedTarget } from '../core/types.ts';
 
 export const RELAY_READ_ONLY_FIELDS = [
   'title',
@@ -15,13 +16,68 @@ export const RELAY_READ_ONLY_FIELDS = [
 
 export type RelayReadOnlyField = (typeof RELAY_READ_ONLY_FIELDS)[number];
 
+export const RELAY_PRODUCT_HINT_FIELDS = [
+  'brand',
+  'name',
+  'model',
+  'variant',
+  'productId',
+  'liveId',
+] as const;
+
+export type RelayProductHintField = (typeof RELAY_PRODUCT_HINT_FIELDS)[number];
+export type RelayProductHint = Partial<Record<RelayProductHintField, string>>;
+
+const RELAY_PRODUCT_HINT_LIMITS: Record<RelayProductHintField, number> = {
+  brand: 200,
+  name: 500,
+  model: 200,
+  variant: 200,
+  productId: 200,
+  liveId: 200,
+};
+
+export function toRelayProductHint(target: NormalizedTarget | undefined): RelayProductHint | undefined {
+  if (!target) return undefined;
+  const hint: RelayProductHint = {};
+  for (const field of RELAY_PRODUCT_HINT_FIELDS) {
+    const value = target[field];
+    if (typeof value !== 'string') continue;
+    const normalized = value.trim();
+    if (normalized) hint[field] = normalized.slice(0, RELAY_PRODUCT_HINT_LIMITS[field]);
+  }
+  return Object.keys(hint).length ? hint : undefined;
+}
+
 export interface UnsignedRelayJob {
   id: string;
   url: string;
   requestedFields: RelayReadOnlyField[];
+  targetHint?: RelayProductHint;
   issuedAt: string;
   expiresAt: string;
   nonce: string;
+}
+
+function validateTargetHint(value: unknown): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Relay targetHint must be a non-empty object');
+  }
+  const object = value as Record<string, unknown>;
+  const keys = Object.keys(object);
+  if (!keys.length) throw new Error('Relay targetHint must be a non-empty object');
+  const allowed = new Set<string>(RELAY_PRODUCT_HINT_FIELDS);
+  for (const key of keys) {
+    if (!allowed.has(key)) throw new Error(`Relay targetHint field is unsupported: ${key}`);
+    const field = key as RelayProductHintField;
+    const fieldValue = object[field];
+    if (typeof fieldValue !== 'string' || !fieldValue.trim()) {
+      throw new Error(`Relay targetHint field must be a non-empty string: ${field}`);
+    }
+    if (fieldValue.length > RELAY_PRODUCT_HINT_LIMITS[field]) {
+      throw new Error(`Relay targetHint field is too long: ${field}`);
+    }
+  }
 }
 
 export interface SignedRelayJob extends UnsignedRelayJob {
@@ -87,6 +143,7 @@ export function validateRelayRequest(job: UnsignedRelayJob, nowMs = Date.now()):
   for (const field of job.requestedFields as string[]) {
     if (!allowed.has(field)) throw new Error(`Relay field is not read-only or unsupported: ${field}`);
   }
+  if (job.targetHint !== undefined) validateTargetHint(job.targetHint);
 }
 
 export async function signRelayJob(job: UnsignedRelayJob, secret: string): Promise<string> {
