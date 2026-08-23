@@ -12,7 +12,7 @@ paths:
     post:
       operationId: startProductResearch
       summary: Research a concrete product and decide whether current evidence supports buying, waiting, skipping, or more research.
-      description: Use for product research, current-price questions, purchase decisions, review synthesis, or comparisons. The backend decides automatically whether authenticated PC pricing is useful.
+      description: Use for product research, current-price questions, purchase decisions, review synthesis, or comparisons. The backend decides automatically whether authenticated PC pricing is useful. On follow-up turns, use conversation context to preserve previously resolved SKU-defining details rather than shortening the identity.
       requestBody:
         required: true
         content:
@@ -26,7 +26,7 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 2000
-                  description: Natural-language product question, preferably including brand/model/variant when known.
+                  description: Natural-language product question. Use conversation context to expand references such as "this" or "이거" and include the full known brand/model/variant/bundle or accessory identity when previously resolved; do not drop known SKU-defining details unless the user explicitly changes them.
                 url:
                   type: string
                   format: uri
