@@ -63,6 +63,7 @@ export interface NormalizedTarget {
   model?: string;
   variant?: string;
   productId?: string;
+  liveId?: string;
   sourceHost?: string;
   canonicalUrl?: string;
 }
