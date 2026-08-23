@@ -74,6 +74,23 @@ test('relay request rejects expired, missing nonce, non-allowlisted domains and 
   assert.throws(() => validateRelayRequest(validJob({ requestedFields: ['price', 'purchase'] as never[] }), now), /read-only|field/i);
 });
 
+test('relay request accepts at most eight signed read-only commerce targets', async () => {
+  const batch = validJob({
+    targets: [
+      { url: 'https://kream.co.kr/products/1', market: 'KREAM', targetHint: { model: 'QWGE43UT1' } },
+      { url: 'https://www.coupang.com/vp/products/2', market: '쿠팡', targetHint: { model: 'QWGE43UT1' } },
+    ],
+  });
+  assert.doesNotThrow(() => validateRelayRequest(batch, now));
+  const signature = await signRelayJob(batch, secret);
+  assert.equal(await verifyRelayJob({ ...batch, signature }, secret, now), true);
+  assert.equal(await verifyRelayJob({ ...batch, targets: [{ ...batch.targets![0]!, url: 'https://example.com/1' }], signature }, secret, now), false);
+
+  assert.throws(() => validateRelayRequest(validJob({
+    targets: Array.from({ length: 9 }, (_, index) => ({ url: `https://www.coupang.com/vp/products/${index + 1}`, market: '쿠팡' })),
+  }), now), /eight|8|targets/i);
+});
+
 test('sanitizeRelayResult rejects secret-bearing keys at any nesting level', () => {
   assert.throws(() => sanitizeRelayResult({ price: 100, nested: { cookie: 'SID=secret' } }), /secret|cookie/i);
   assert.throws(() => sanitizeRelayResult({ token: 'abc' }), /secret|token/i);

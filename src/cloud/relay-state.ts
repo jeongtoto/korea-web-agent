@@ -4,6 +4,7 @@ import {
   RELAY_READ_ONLY_FIELDS,
   signRelayJob,
   type RelayProductHint,
+  type RelayTarget,
   type SignedRelayJob,
   type UnsignedRelayJob,
 } from '../relay/protocol.ts';
@@ -70,6 +71,7 @@ export async function queuePersistentRelay(
   nowMs = Date.now(),
   timeoutMs = DEFAULT_RELAY_TIMEOUT_MS,
   targetHint?: RelayProductHint,
+  targets?: RelayTarget[],
 ): Promise<SignedRelayJob> {
   const existing = await store.getJSON<PendingRelayRecord>(PENDING_KEY);
   if (existing && !isExpired(existing.job, nowMs)) throw new Error('Persistent relay is busy with another active job');
@@ -80,6 +82,7 @@ export async function queuePersistentRelay(
     url,
     requestedFields: [...RELAY_READ_ONLY_FIELDS],
     ...(targetHint ? { targetHint } : {}),
+    ...(targets?.length ? { targets: targets.slice(0, 8) } : {}),
     issuedAt: new Date(nowMs).toISOString(),
     expiresAt: new Date(nowMs + Math.min(Math.max(1, timeoutMs), 10 * 60_000)).toISOString(),
     nonce: crypto.randomUUID(),
@@ -151,6 +154,12 @@ export async function failPersistentRelay(
     },
     errors: [...researchJob.errors, `local_relay: ${safeMessage}`],
   };
+  if (/manual_verification_required|captcha|보안문자/i.test(message) && failed.report) {
+    failed.report.manualChecks = [
+      ...(failed.report.manualChecks ?? []),
+      { type: 'captcha', message: '전용 브라우저에서 보안문자 또는 수동 확인을 완료한 뒤 다시 실행해야 합니다.', ...(failed.request.url ? { url: failed.request.url } : {}) },
+    ];
+  }
   await saveResearchJob(store, failed);
   await store.delete(PENDING_KEY);
   return failed;

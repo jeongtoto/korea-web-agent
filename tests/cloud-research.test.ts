@@ -36,7 +36,13 @@ test('cloud research queues persistent relay only when connector is online and r
   await markPersistentConnectorSeen(store, 9_900);
   let observed: ResearchRequest | null = null;
   const result = await runCloudResearch(
-    { question: '내 쿠폰가까지 봐줘', url: URL, includeLocalRelay: true, category: 'product' },
+    {
+      question: '내 쿠폰가까지 봐줘', url: URL, includeLocalRelay: true, category: 'product',
+      relayCandidates: [
+        { url: URL, market: '네이버', targetHint: { model: 'QWGE43UT1' } },
+        { url: 'https://kream.co.kr/products/1', market: 'KREAM', targetHint: { model: 'QWGE43UT1' } },
+      ],
+    },
     {
       store,
       relaySecret: SECRET,
@@ -59,6 +65,8 @@ test('cloud research queues persistent relay only when connector is online and r
     variant: 'EKWBYME78W(V3) 43인치',
     productId: '7322162980',
   });
+  assert.equal(relayJob?.targets?.length, 2);
+  assert.equal(relayJob?.targets?.[1]?.market, 'KREAM');
 });
 
 test('cloud research falls back to completed public result when connector is offline', async () => {

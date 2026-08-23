@@ -128,7 +128,7 @@ export function createKoreaWebAgentServer(options: ServerOptions = {}): any {
       const url = new URL(req.url ?? '/', 'http://localhost');
 
       if (req.method === 'GET' && url.pathname === '/api/health') {
-        sendJson(res, 200, { ok: true, service: 'korea-web-agent', version: '0.1.0' });
+        sendJson(res, 200, { ok: true, service: 'korea-web-agent', version: '0.5.0' });
         return;
       }
 

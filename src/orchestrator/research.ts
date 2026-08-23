@@ -19,6 +19,8 @@ import { searchCrossref } from '../providers/crossref.ts';
 import type { SearchHit } from '../providers/index.ts';
 import { toRelayProductHint, type RelayProductHint } from '../relay/protocol.ts';
 import { buildSourcePlan, shouldUseAcademicResearch, type SourceQuery } from '../providers/source-plan.ts';
+import { buildMarketOffer, rankMarketOffers } from '../core/offer-engine.ts';
+import { buildRecommendations } from '../core/recommendation-engine.ts';
 
 export interface RelayClient {
   isAvailable(): Promise<boolean>;
@@ -88,6 +90,14 @@ function evidenceClassForSearch(source: SourceQuery | undefined, hit: SearchHit)
     case 'naver-shopping':
     case 'coupang':
     case 'danawa':
+    case 'kream':
+    case 'enuri':
+    case 'open-market':
+    case 'retail':
+    case 'used':
+    case 'refurb':
+    case 'overseas':
+    case 'offline':
       return 'retailer_listing';
     case 'naver-blog':
     case 'naver-cafe':
@@ -137,6 +147,9 @@ function searchHitEvidence(
     const signals = match.level === 'exact_product'
       ? deriveExplicitSearchSignals(hit, evidenceClass, target)
       : {};
+    const marketOffer = evidenceClass === 'retailer_listing'
+      ? buildMarketOffer(hit, target, retrievedAt)
+      : null;
     return {
       claim: [hit.title, hit.snippet].filter(Boolean).join(' — '),
       sourceUrl: hit.url,
@@ -148,7 +161,7 @@ function searchHitEvidence(
       confidence,
       specificity,
       notes: `Identity match: ${match.level} (${match.score.toFixed(2)}). Search metadata is weaker than direct retrieval; source class is derived from the actual result host/source family, and sentiment/price signals are recorded only when explicit wording is present.`,
-      data: { identityMatch: match.level, identityMatchScore: match.score, ...signals },
+      data: { identityMatch: match.level, identityMatchScore: match.score, ...signals, ...(marketOffer ? { marketOffer } : {}) },
     };
   }
 
@@ -371,6 +384,82 @@ export async function runResearch(
       ...(context.intent ? { intent: context.intent } : {}),
       ...(context.identityConfidence !== undefined ? { identityConfidence: context.identityConfidence } : {}),
     });
+    const discoveredOffers = normalized.flatMap((item) => {
+      const value = item.data?.marketOffer;
+      if (value && typeof value === 'object' && !Array.isArray(value)) return [value as import('../core/types.ts').MarketOffer];
+      if (item.specificity !== 'exact_product' || !item.data?.product || typeof item.data.product !== 'object') return [];
+      const product = item.data.product as Record<string, unknown>;
+      const rawOffers = product.offers;
+      if (!rawOffers || typeof rawOffers !== 'object' || Array.isArray(rawOffers)) return [];
+      const offerData = rawOffers as Record<string, unknown>;
+      const amount = offerData.price ?? offerData.salePrice ?? offerData.lowPrice;
+      if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) return [];
+      const built = buildMarketOffer({
+        title: typeof product.name === 'string' ? product.name : target.name ?? '상품',
+        url: item.sourceUrl,
+        snippet: `판매가 ${amount.toLocaleString('ko-KR')}원`,
+      }, target, item.retrievedAt);
+      if (!built) return [];
+      built.verification = ['structured_data', 'static_html'].includes(item.acquisitionMethod) ? 'page_verified' : 'search_metadata';
+      return [built];
+    });
+    const deduplicatedOffers = [...new Map(discoveredOffers.map((offer) => [offer.url, offer])).values()]
+      .sort((a, b) => Number(b.eligible) - Number(a.eligible)
+        || Math.min(a.cardPrice ?? Infinity, a.totalCashPrice ?? Infinity, a.effectivePrice ?? Infinity)
+          - Math.min(b.cardPrice ?? Infinity, b.totalCashPrice ?? Infinity, b.effectivePrice ?? Infinity)
+        || b.identityScore - a.identityScore);
+    const marketCounts = new Map<string, number>();
+    const offers = deduplicatedOffers.filter((offer) => {
+      const count = marketCounts.get(offer.market) ?? 0;
+      if (count >= 3) return false;
+      marketCounts.set(offer.market, count + 1);
+      return true;
+    }).slice(0, 30);
+    const { bestOffers } = rankMarketOffers(offers, request.purchaseContext ?? {});
+    if (offers.length) {
+      job.report.offers = offers;
+      job.report.bestOffers = bestOffers;
+    }
+    job.report.marketCoverage = sourcePlan
+      .filter((source) => source.market || ['naver-shopping', 'coupang', 'danawa'].includes(source.id))
+      .map((source) => {
+        const result = sourceResults.find((item) => item.source === (source.id === 'general' ? 'public_search' : source.id));
+        const found = result?.evidence.filter((item) => item.data?.marketOffer).length ?? 0;
+        return {
+          market: source.market ?? source.sourceType,
+          attempted: Boolean(result),
+          found,
+          verified: 0,
+          status: !result ? 'not_attempted' as const : !result.success ? 'failed' as const : found ? 'found_unverified' as const : 'no_match' as const,
+          ...(!result?.success && result?.error ? { message: result.error } : {}),
+        };
+      });
+    const manualChecks: import('../core/types.ts').ManualCheck[] = [];
+    const ownedCards = (request.purchaseContext?.ownedCards ?? []).map((card) => card.toLowerCase().replace(/\s+/g, ''));
+    const conditionalCards = [...new Set(offers.map((offer) => offer.cardName).filter((value): value is string => Boolean(value)))];
+    const unconfirmedCards = conditionalCards.filter((card) => {
+      const normalized = card.toLowerCase().replace(/\s+/g, '');
+      return !ownedCards.some((owned) => normalized.includes(owned) || owned.includes(normalized.replace(/카드$/, '')));
+    });
+    if (unconfirmedCards.length) manualChecks.push({ type: 'owned_card', message: `조건부 카드가 적용 여부 확인: ${unconfirmedCards.join(', ')}` });
+    if (offers.some((offer) => offer.membershipPrice !== undefined) && !(request.purchaseContext?.memberships?.length)) {
+      manualChecks.push({ type: 'membership', message: '멤버십 가격을 사용하려면 실제 가입 상태와 적용 조건을 확인해야 합니다.' });
+    }
+    if (offers.some((offer) => !['new', 'unknown'].includes(offer.condition))) {
+      manualChecks.push({ type: 'used_condition', message: '리퍼·반품·전시·중고 후보는 구성품, 패널/외관 상태, 보증 승계를 직접 확인해야 합니다.' });
+    }
+    if (job.report.marketCoverage.some((coverage) => coverage.market === '오프라인' && coverage.verified === 0)) {
+      manualChecks.push({ type: 'offline_quote', message: '오프라인 매장가는 지역·재고·전시품 협상에 따라 달라 전화/방문 견적 확인이 필요합니다.' });
+    }
+    if (manualChecks.length) job.report.manualChecks = manualChecks;
+    if (context.recommendationCandidates?.length) {
+      job.report.recommendations = buildRecommendations({
+        question: request.question,
+        candidates: context.recommendationCandidates,
+        offers,
+        ...(request.purchaseContext ? { purchaseContext: request.purchaseContext } : {}),
+      });
+    }
   }
 
   return job;

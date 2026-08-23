@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runResearch, type ResearchDependencies } from '../src/orchestrator/research.ts';
+import { createDefaultResearchDependencies, runResearch, type ResearchDependencies } from '../src/orchestrator/research.ts';
 import type { DirectPageResult } from '../src/providers/direct-page.ts';
 
 const url = 'https://brand.naver.com/mildo/products/7322162980';
@@ -158,7 +158,7 @@ test('orchestrator executes bounded source-specific searches instead of a single
   }));
 
   assert.ok(queries.length >= 9);
-  assert.ok(queries.length <= 14);
+  assert.ok(queries.length <= 20);
   assert.ok(queries.some((query) => query.includes('site:blog.naver.com')));
   assert.ok(queries.some((query) => query.includes('site:cafe.naver.com')));
   assert.ok(queries.some((query) => query.includes('site:coupang.com')));
@@ -193,4 +193,37 @@ test('orchestrator adds dedicated Crossref-style academic evidence separately fr
     item.evidenceClass === 'peer_reviewed_research' &&
     item.specificity === 'general_mechanism'
   ));
+});
+
+test('orchestrator exposes multi-market winners without mixing card, points, and return prices', async () => {
+  const target = {
+    kind: 'product' as const,
+    brand: '와이드뷰',
+    model: 'QWGE43UT1',
+    variant: '43인치',
+    name: '와이드뷰 QWGE43UT1 EKWBYME78W V3 43인치 이동형 패키지',
+  };
+  const job = await runResearch({
+    question: '동일 신품 패키지 최저가와 삼성카드가, 적립 체감가, 반품가를 따로 비교해줘',
+    category: 'product',
+    purchaseContext: { ownedCards: ['삼성카드'] },
+  }, createDefaultResearchDependencies({
+    publicSearch: async (query) => {
+      if (query.includes('site:kream.co.kr')) return [{ title: `${target.name} 신품`, url: 'https://kream.co.kr/products/1', snippet: '구매가 407,200원 삼성카드 결제 시 390,000원 무료배송' }];
+      if (query.includes('네이버 쇼핑')) return [{ title: `${target.name} 신품`, url: 'https://search.shopping.naver.com/catalog/1', snippet: '판매가 499,000원 최대 적립 106,650원 무료배송' }];
+      if (query.includes('리퍼 반품')) return [{ title: `${target.name} 반품`, url: 'https://www.coupang.com/vp/products/2', snippet: '반품 상품 296,140원 무료배송' }];
+      return [];
+    },
+    academicSearch: async () => [],
+    relayClient: null,
+    now: () => new Date('2026-08-24T00:00:00.000Z'),
+    idFactory: () => 'multi-market',
+  }), { resolvedTarget: target, identityConfidence: 0.96 });
+
+  assert.equal(job.report?.bestOffers?.cash?.amount, 407200);
+  assert.equal(job.report?.bestOffers?.ownedCard?.amount, 390000);
+  assert.equal(job.report?.bestOffers?.effective?.amount, 392350);
+  assert.equal(job.report?.bestOffers?.alternativeCondition?.amount, 296140);
+  assert.ok((job.report?.marketCoverage?.length ?? 0) >= 10);
+  assert.ok(job.report?.manualChecks?.some((check) => check.type === 'used_condition'));
 });

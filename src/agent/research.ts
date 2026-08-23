@@ -5,6 +5,12 @@ import type {
   EvidenceClass,
   NormalizedTarget,
   PriceSnapshot,
+  MarketOffer,
+  BestOffers,
+  MarketCoverage,
+  ProductRecommendation,
+  ManualCheck,
+  PurchaseContext,
   ProductCandidate,
   ProductConfidenceDimensions,
   ProductSpecificity,
@@ -21,6 +27,7 @@ import type { SearchHit } from '../providers/index.ts';
 export interface AgentResearchInput {
   query: string;
   url?: string;
+  purchaseContext?: PurchaseContext;
 }
 
 export interface AgentResearchDependencies {
@@ -69,6 +76,11 @@ export interface AgentResearchResult {
   confidenceDimensions?: ProductConfidenceDimensions;
   price?: PriceSnapshot;
   personalizedPrice?: PriceSnapshot;
+  offers?: MarketOffer[];
+  bestOffers?: BestOffers;
+  marketCoverage?: MarketCoverage[];
+  recommendations?: ProductRecommendation[];
+  manualChecks?: ManualCheck[];
   relay: AgentRelaySummary;
   summary: string;
   reasons: string[];
@@ -90,6 +102,29 @@ export function validateAgentResearchInput(value: unknown): AgentResearchInput {
   if (object.url !== undefined) {
     if (typeof object.url !== 'string' || !object.url.trim() || object.url.length > 4_000) throw new Error('url is invalid');
     input.url = assertPublicUrl(object.url.trim()).toString();
+  }
+  if (object.purchaseContext !== undefined) {
+    if (!object.purchaseContext || typeof object.purchaseContext !== 'object' || Array.isArray(object.purchaseContext)) throw new Error('purchaseContext is invalid');
+    const raw = object.purchaseContext as Record<string, unknown>;
+    const allowed = new Set(['ownedCards', 'memberships', 'budget', 'region', 'preferences']);
+    if (Object.keys(raw).some((key) => !allowed.has(key))) throw new Error('purchaseContext contains unsupported fields');
+    const context: PurchaseContext = {};
+    for (const key of ['ownedCards', 'memberships', 'preferences'] as const) {
+      const value = raw[key];
+      if (value === undefined) continue;
+      if (!Array.isArray(value) || value.length > 20 || value.some((item) => typeof item !== 'string' || !item.trim() || item.length > 200)) throw new Error(`purchaseContext.${key} is invalid`);
+      if (key === 'ownedCards' && value.some((item) => /(?:\d[ -]?){12,19}/.test(item as string))) throw new Error('purchaseContext.ownedCards accepts card names only, never card numbers');
+      context[key] = value.map((item) => (item as string).trim());
+    }
+    if (raw.budget !== undefined) {
+      if (typeof raw.budget !== 'number' || !Number.isFinite(raw.budget) || raw.budget <= 0) throw new Error('purchaseContext.budget is invalid');
+      context.budget = raw.budget;
+    }
+    if (raw.region !== undefined) {
+      if (typeof raw.region !== 'string' || !raw.region.trim() || raw.region.length > 200) throw new Error('purchaseContext.region is invalid');
+      context.region = raw.region.trim();
+    }
+    input.purchaseContext = context;
   }
   return input;
 }
@@ -132,7 +167,7 @@ function productIdentity(job: ResearchJob): AgentProductIdentity {
     ...job.target,
     identityConfidence,
     ambiguous: Boolean(job.researchContext?.resolutionAmbiguous),
-    candidates: [],
+    candidates: job.researchContext?.recommendationCandidates?.slice(0, 5) ?? [],
   };
 }
 
@@ -169,7 +204,17 @@ export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {
   if (report?.confidenceDimensions) result.confidenceDimensions = report.confidenceDimensions;
   if (report?.price) result.price = report.price;
   if (report?.personalizedPrice) result.personalizedPrice = report.personalizedPrice;
+  if (report?.offers) result.offers = report.offers;
+  if (report?.bestOffers) result.bestOffers = report.bestOffers;
+  if (report?.marketCoverage) result.marketCoverage = report.marketCoverage;
+  if (report?.recommendations) result.recommendations = report.recommendations;
+  if (report?.manualChecks) result.manualChecks = report.manualChecks;
   return result;
+}
+
+function isCategoryRecommendation(question: string): boolean {
+  const text = question.toLowerCase().replace(/\s+/g, ' ');
+  return /(추천|베스트|best|골라|뭐로\s*살|무엇을\s*살|어떤\s*(제품|이불|침구|가구|가전))/.test(text);
 }
 
 function ambiguousResult(query: string, intent: ResearchIntent, confidence: number, candidates: ProductCandidate[]): AgentResearchResult {
@@ -210,23 +255,40 @@ function relayDiscoveryQuery(target: NormalizedTarget): string {
   const identity = [...new Set([target.brand, target.model, target.variant, target.name].filter((value): value is string => Boolean(value?.trim())))]
     .join(' ')
     .trim();
-  return identity ? `${identity} site:naver.com OR site:coupang.com` : '';
+  return identity ? `${identity} 가격 카드 쿠폰 (site:naver.com OR site:coupang.com OR site:kream.co.kr OR site:danawa.com OR site:enuri.com OR site:11st.co.kr OR site:gmarket.co.kr OR site:auction.co.kr)` : '';
 }
 
-async function discoverRelayEligibleUrl(target: NormalizedTarget, deps: AgentResearchDependencies): Promise<string | undefined> {
+function marketName(url: string): string {
+  const host = new URL(url).hostname.toLowerCase();
+  if (host.endsWith('kream.co.kr')) return 'KREAM';
+  if (host.endsWith('coupang.com')) return '쿠팡';
+  if (host.endsWith('naver.com')) return '네이버';
+  if (host.endsWith('danawa.com')) return '다나와';
+  if (host.endsWith('enuri.com')) return '에누리';
+  if (host.endsWith('11st.co.kr')) return '11번가';
+  if (host.endsWith('gmarket.co.kr')) return 'G마켓';
+  if (host.endsWith('auction.co.kr')) return '옥션';
+  return host;
+}
+
+async function discoverRelayEligibleUrls(target: NormalizedTarget, deps: AgentResearchDependencies): Promise<string[]> {
   const query = relayDiscoveryQuery(target);
-  if (!query) return undefined;
+  if (!query) return [];
   try {
     const hits = await deps.publicSearch(query);
-    for (const hit of hits.slice(0, 12)) {
+    const urls: string[] = [];
+    for (const hit of hits.slice(0, 20)) {
       if (!relayEligible(hit.url)) continue;
-      if (matchEvidenceToProduct(target, hit).level !== 'exact_product') continue;
-      return assertPublicUrl(hit.url).toString();
+      if (!['exact_product', 'probable_product'].includes(matchEvidenceToProduct(target, hit).level)) continue;
+      const url = assertPublicUrl(hit.url).toString();
+      if (!urls.includes(url)) urls.push(url);
+      if (urls.length >= 8) break;
     }
+    return urls;
   } catch {
     // Public research should remain usable if a relay-specific discovery query fails.
   }
-  return undefined;
+  return [];
 }
 
 export async function runAgentResearch(
@@ -238,22 +300,51 @@ export async function runAgentResearch(
   const resolutionRequest: ResearchRequest = { question: input.query, category: 'product' };
   if (input.url) resolutionRequest.url = input.url;
   const resolution = await resolveProduct(resolutionRequest, { publicSearch: deps.publicSearch });
+  const recommendationMode = isCategoryRecommendation(input.query);
 
-  if (resolution.ambiguous || resolution.target.kind !== 'product') {
+  if ((resolution.ambiguous || resolution.target.kind !== 'product') && !(recommendationMode && resolution.candidates.length)) {
     return ambiguousResult(input.query, intent, resolution.confidence, resolution.candidates);
   }
 
-  const target: NormalizedTarget = { ...resolution.target };
+  const target: NormalizedTarget = resolution.target.kind === 'product'
+    ? { ...resolution.target }
+    : { ...resolution.candidates[0]!.target, kind: 'product' };
   let url = input.url ?? target.canonicalUrl;
-  if (!input.url && intent.personalizedPriceUseful && !relayEligible(url)) {
-    url = await discoverRelayEligibleUrl(target, deps) ?? url;
+  const discoveredRelayUrls = intent.personalizedPriceUseful ? await discoverRelayEligibleUrls(target, deps) : [];
+  const recommendationRelayCandidates = recommendationMode
+    ? resolution.candidates.flatMap((candidate) => candidate.sourceUrls
+        .filter(relayEligible)
+        .map((candidateUrl) => ({ url: assertPublicUrl(candidateUrl).toString(), market: marketName(candidateUrl), candidate: candidate.target })))
+    : [];
+  if (!input.url && !relayEligible(url)) {
+    url = recommendationRelayCandidates[0]?.url ?? discoveredRelayUrls[0] ?? url;
   }
-  const wantsRelay = Boolean(intent.personalizedPriceUseful && relayEligible(url));
+  const wantsRelay = Boolean(intent.personalizedPriceUseful && (relayEligible(url) || recommendationRelayCandidates.length));
   const request: ResearchRequest = {
     question: input.query,
     category: 'product',
     includeLocalRelay: wantsRelay,
   };
+  if (input.purchaseContext) request.purchaseContext = input.purchaseContext;
+  if (wantsRelay) {
+    const entries = [
+      ...(url ? [{ url, market: marketName(url), candidate: target }] : []),
+      ...recommendationRelayCandidates,
+      ...discoveredRelayUrls.map((candidateUrl) => ({ url: candidateUrl, market: marketName(candidateUrl), candidate: target })),
+    ].filter((entry, index, values) => values.findIndex((value) => value.url === entry.url) === index).slice(0, 8);
+    request.relayCandidates = entries.map((entry) => ({
+      url: entry.url,
+      market: entry.market,
+      targetHint: {
+        ...(entry.candidate.brand ? { brand: entry.candidate.brand } : {}),
+        ...(entry.candidate.name ? { name: entry.candidate.name } : {}),
+        ...(entry.candidate.model ? { model: entry.candidate.model } : {}),
+        ...(entry.candidate.variant ? { variant: entry.candidate.variant } : {}),
+        ...(entry.candidate.productId ? { productId: entry.candidate.productId } : {}),
+        ...(entry.candidate.liveId ? { liveId: entry.candidate.liveId } : {}),
+      },
+    }));
+  }
   if (url) request.url = assertPublicUrl(url).toString();
 
   const context: ResearchContext = {
@@ -261,6 +352,7 @@ export async function runAgentResearch(
     identityConfidence: resolution.confidence,
     resolvedTarget: target,
     resolutionAmbiguous: false,
+    ...(recommendationMode ? { recommendationMode: true, recommendationCandidates: resolution.candidates.slice(0, 8) } : {}),
   };
   const job = await deps.cloudResearch(request, context);
   if (!job.researchContext) job.researchContext = context;

@@ -28,6 +28,10 @@ test('relay authenticated domains are explicit allowlist matches or their subdom
   assert.equal(isRelayDomainAllowed('brand.naver.com'), true);
   assert.equal(isRelayDomainAllowed('m.smartstore.naver.com'), true);
   assert.equal(isRelayDomainAllowed('www.coupang.com'), true);
+  assert.equal(isRelayDomainAllowed('kream.co.kr'), true);
+  assert.equal(isRelayDomainAllowed('m.11st.co.kr'), true);
+  assert.equal(isRelayDomainAllowed('web.joongna.com'), true);
   assert.equal(isRelayDomainAllowed('evilnaver.com'), false);
+  assert.equal(isRelayDomainAllowed('kream.co.kr.evil.example'), false);
   assert.equal(isRelayDomainAllowed('example.com'), false);
 });

@@ -31,7 +31,28 @@ export async function runConnectorIteration(options: ConnectorIterationOptions):
   let driver: BrowserDriver | undefined;
   try {
     driver = await options.driverFactory();
-    const result = sanitizeRelayResult(await extractAuthenticatedFields(job, driver));
+    let extracted: unknown;
+    if (job.targets?.length) {
+      const { targets: _targets, targetHint: _targetHint, ...baseJob } = job;
+      const offers = [];
+      for (const target of job.targets) {
+        const singleJob: SignedRelayJob = {
+          ...baseJob,
+          url: target.url,
+          ...(target.targetHint ? { targetHint: target.targetHint } : {}),
+        };
+        offers.push({
+          market: target.market,
+          url: target.url,
+          ...(target.targetHint ? { targetHint: target.targetHint } : {}),
+          ...await extractAuthenticatedFields(singleJob, driver),
+        });
+      }
+      extracted = { offers };
+    } else {
+      extracted = await extractAuthenticatedFields(job, driver);
+    }
+    const result = sanitizeRelayResult(extracted);
     const response = await fetchImpl(endpoint(options.cloudUrl, '/api/relay/result'), {
       method: 'POST',
       headers: { ...auth, 'content-type': 'application/json' },

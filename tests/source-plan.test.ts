@@ -17,6 +17,7 @@ test('ordinary purchase source plan covers commerce and reviews without mandator
 
   for (const required of [
     'naver-shopping', 'naver-blog', 'naver-cafe', 'coupang', 'danawa',
+    'kream', 'enuri', 'open-market', 'retail', 'used', 'refurb', 'overseas', 'offline',
     'youtube', 'reddit', 'news', 'official',
   ]) {
     assert.ok(ids.has(required), `missing ${required}`);
@@ -43,6 +44,6 @@ test('health or research question may add general-mechanism academic evidence', 
 
 test('source plan is bounded and does not emit duplicate queries', () => {
   const plan = buildSourcePlan(target, '어때?');
-  assert.ok(plan.length <= 14);
+  assert.ok(plan.length <= 20);
   assert.equal(new Set(plan.map((item) => item.query)).size, plan.length);
 });

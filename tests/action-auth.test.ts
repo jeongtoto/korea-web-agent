@@ -61,6 +61,15 @@ test('Custom GPT Action price schema exposes Naver live payment and effective-pr
   }
 });
 
+test('Custom GPT Action exposes multi-market offers, independent winners, Best 3 and manual checks', () => {
+  const schema = readFileSync('openapi/korea-web-agent-action.yaml', 'utf8');
+  for (const field of ['purchaseContext', 'offers', 'bestOffers', 'marketCoverage', 'recommendations', 'manualChecks', 'cardPrice', 'totalCashPrice']) {
+    assert.match(schema, new RegExp(`\\b${field}:`), `Action schema must expose ${field}`);
+  }
+  assert.match(schema, /owned_card/);
+  assert.match(schema, /alternative_condition/);
+});
+
 test('Custom GPT contract preserves resolved product identity across follow-up turns', () => {
   const schema = readFileSync('openapi/korea-web-agent-action.yaml', 'utf8');
   const config = readFileSync('docs/custom-gpt-config.md', 'utf8');
