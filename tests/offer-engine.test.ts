@@ -67,3 +67,48 @@ test('does not let a non-owned card or incomplete bundle win primary rankings', 
   assert.equal(offers[1]?.bundleComplete, false);
   assert.equal(offers[1]?.eligible, false);
 });
+
+test('exposes advertised card and pay promotions without claiming ownership', () => {
+  const offers = [
+    buildMarketOffer({ title: `${target.name} 신품`, url: 'https://kream.co.kr/products/10', snippet: '구매가 450,000원 토스페이 결제 시 425,000원 무료배송' }, target, at),
+    buildMarketOffer({ title: `${target.name} 신품`, url: 'https://search.shopping.naver.com/catalog/10', snippet: '판매가 455,000원 카카오페이 결제 시 430,000원 무료배송' }, target, at),
+    buildMarketOffer({ title: `${target.name} 신품`, url: 'https://brand.naver.com/widevu/products/10', snippet: '판매가 460,000원 네이버페이 결제 시 435,000원 무료배송' }, target, at),
+  ].filter((value): value is NonNullable<typeof value> => Boolean(value));
+
+  const result = rankMarketOffers(offers, {});
+  assert.equal(result.bestOffers.ownedCard, undefined);
+  assert.equal(result.bestOffers.advertisedPayment?.amount, 425000);
+  assert.equal(result.bestOffers.advertisedPayment?.offer.paymentMethod, '토스페이');
+  assert.deepEqual(result.paymentPromotions.map((item) => item.method), ['토스페이', '카카오페이', '네이버페이']);
+});
+
+test('returns separate member and non-member effective scenarios only from explicit evidence', () => {
+  const offer = buildMarketOffer({
+    title: `${target.name} 신품`,
+    url: 'https://brand.naver.com/widevu/products/20',
+    snippet: '비회원 판매가 499,000원 기본 적립 5,000원 네이버플러스 회원가 479,000원 회원 적립 20,000원 무료배송',
+  }, target, at);
+  assert.ok(offer);
+  const result = rankMarketOffers([offer], {});
+  const member = result.membershipScenarios.find((item) => item.member === true);
+  const nonMember = result.membershipScenarios.find((item) => item.member === false);
+  assert.equal(member?.membership, '네이버플러스');
+  assert.equal(member?.paymentPrice, 479000);
+  assert.equal(member?.expectedPoints, 20000);
+  assert.equal(member?.effectivePrice, 459000);
+  assert.equal(nonMember?.paymentPrice, 499000);
+  assert.equal(nonMember?.expectedPoints, 5000);
+  assert.equal(nonMember?.effectivePrice, 494000);
+});
+
+test('captures explicitly stated promotion period without inventing missing dates', () => {
+  const offer = buildMarketOffer({
+    title: `${target.name} 신품`,
+    url: 'https://brand.naver.com/widevu/products/30',
+    snippet: '8월 23일 00:00부터 8월 25일 23:59까지 토스페이 결제 시 430,000원 판매가 450,000원 무료배송',
+  }, target, at, new Date('2026-08-24T06:00:00.000Z'));
+  assert.ok(offer);
+  assert.equal(offer.validityStatus, 'active');
+  assert.match(offer.startsAt ?? '', /^2026-08-23/);
+  assert.match(offer.endsAt ?? '', /^2026-08-25/);
+});
