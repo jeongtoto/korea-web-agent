@@ -112,3 +112,27 @@ test('captures explicitly stated promotion period without inventing missing date
   assert.match(offer.startsAt ?? '', /^2026-08-23/);
   assert.match(offer.endsAt ?? '', /^2026-08-25/);
 });
+
+test('does not rank expired or upcoming payment promotions as a current best payment method', () => {
+  const expired = buildMarketOffer({
+    title: `${target.name} 신품`,
+    url: 'https://brand.naver.com/widevu/products/31',
+    snippet: '8월 20일 00:00부터 8월 23일 23:59까지 토스페이 결제 시 350,000원 판매가 450,000원 무료배송',
+  }, target, at, new Date('2026-08-24T06:00:00.000Z'));
+  const upcoming = buildMarketOffer({
+    title: `${target.name} 신품`,
+    url: 'https://brand.naver.com/widevu/products/32',
+    snippet: '8월 25일 00:00부터 8월 26일 23:59까지 카카오페이 결제 시 340,000원 판매가 450,000원 무료배송',
+  }, target, at, new Date('2026-08-24T06:00:00.000Z'));
+  const active = buildMarketOffer({
+    title: `${target.name} 신품`,
+    url: 'https://brand.naver.com/widevu/products/33',
+    snippet: '8월 23일 00:00부터 8월 25일 23:59까지 네이버페이 결제 시 425,000원 판매가 450,000원 무료배송',
+  }, target, at, new Date('2026-08-24T06:00:00.000Z'));
+  const offers = [expired, upcoming, active].filter((value): value is NonNullable<typeof value> => Boolean(value));
+  const result = rankMarketOffers(offers, {});
+  assert.equal(expired?.validityStatus, 'expired');
+  assert.equal(upcoming?.validityStatus, 'upcoming');
+  assert.equal(result.bestOffers.advertisedPayment?.offer.paymentMethod, '네이버페이');
+  assert.equal(result.bestOffers.advertisedPayment?.amount, 425000);
+});
