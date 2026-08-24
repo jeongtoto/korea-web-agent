@@ -1,5 +1,6 @@
 import { sanitizeRelayResult, verifyRelayJob, type SignedRelayJob } from './protocol.ts';
 import { createPlaywrightBrowserDriver, extractAuthenticatedFields, type BrowserDriver } from './playwright-adapter.ts';
+import { redactSensitiveText } from '../core/shopping-intelligence.ts';
 
 declare const process: { env: Record<string, string | undefined>; cwd(): string; argv: string[] };
 
@@ -61,10 +62,11 @@ export async function runConnectorIteration(options: ConnectorIterationOptions):
     if (!response.ok) throw new Error(`Relay result upload failed with HTTP ${response.status}`);
     return 'processed';
   } catch (error) {
+    const safeError = redactSensitiveText(error instanceof Error ? error.message : String(error), [options.secret]);
     await fetchImpl(endpoint(options.cloudUrl, '/api/relay/result'), {
       method: 'POST',
       headers: { ...auth, 'content-type': 'application/json' },
-      body: JSON.stringify({ jobId: job.id, error: error instanceof Error ? error.message : String(error) }),
+      body: JSON.stringify({ jobId: job.id, error: safeError }),
     }).catch(() => undefined);
     throw error;
   } finally {
@@ -78,7 +80,7 @@ export async function runConnectorLoop(options: ConnectorIterationOptions & { po
     try {
       await runConnectorIteration(options);
     } catch (error) {
-      console.error(`Relay connector iteration failed: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`Relay connector iteration failed: ${redactSensitiveText(error instanceof Error ? error.message : String(error), [options.secret])}`);
     }
     await new Promise<void>((resolve) => setTimeout(resolve, interval));
   }
