@@ -11,9 +11,10 @@ test('Netlify agent research starts a queued job and dispatches a background wor
   assert.doesNotMatch(start, /await\s+runAgentResearch\(/);
 });
 
-test('background worker is explicitly configured for background mode and reuses the queued job id', () => {
-  const worker = readFileSync('netlify/functions/agent-research-background.mjs', 'utf8');
-  assert.match(worker, /background\s*:\s*true/);
+test('background worker uses the Netlify -background suffix and reuses the queued job id', () => {
+  const workerPath = 'netlify/functions/agent-research-background.mjs';
+  assert.match(workerPath, /-background\.mjs$/);
+  const worker = readFileSync(workerPath, 'utf8');
   assert.match(worker, /claimQueuedAgentResearch/);
   assert.match(worker, /runAgentResearch/);
   assert.match(worker, /idFactory\s*:\s*\(\)\s*=>\s*jobId/);
