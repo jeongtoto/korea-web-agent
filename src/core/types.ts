@@ -272,6 +272,59 @@ export interface ProductConfidenceDimensions {
   personalizedPrice: number;
 }
 
+export interface PriceHistoryObservationReport {
+  observedAt: string;
+  cashPrice: number;
+  sourceUrl?: string;
+  market?: string;
+}
+
+export interface PriceHistoryReport {
+  sku: string;
+  observations: PriceHistoryObservationReport[];
+  comparison: {
+    direction: 'up' | 'down' | 'unchanged' | 'insufficient';
+    previousPrice?: number;
+    currentPrice?: number;
+    absoluteChange?: number;
+    percentageChange?: number;
+  };
+  position: {
+    label: 'six_month_low' | 'below_average' | 'near_average' | 'above_average' | 'six_month_high' | 'insufficient';
+    current: number;
+    minimum?: number;
+    maximum?: number;
+    average?: number;
+    sampleCount: number;
+  };
+}
+
+export interface MembershipScenarioReport {
+  paymentPrice: number;
+  expectedPoints: number;
+  membershipFee: number;
+  effectivePrice: number;
+}
+
+export interface MembershipScenariosReport {
+  membershipName?: string;
+  withoutMembership: MembershipScenarioReport;
+  withMembership: MembershipScenarioReport;
+}
+
+export interface EventWindowReport {
+  startsOn?: string;
+  endsOn?: string;
+  status: 'upcoming' | 'active' | 'expired' | 'unknown';
+}
+
+export interface StandardPriceRowReport {
+  key: 'cash' | 'card' | 'effective_without_membership' | 'effective_with_membership';
+  label: string;
+  amount?: number;
+  condition?: string;
+}
+
 export interface ProductReport {
   decision: ReportDecision;
   confidence: number;
@@ -291,6 +344,10 @@ export interface ProductReport {
   marketCoverage?: MarketCoverage[];
   recommendations?: ProductRecommendation[];
   manualChecks?: ManualCheck[];
+  priceHistory?: PriceHistoryReport;
+  membershipScenarios?: MembershipScenariosReport;
+  eventWindow?: EventWindowReport;
+  standardPriceRows?: StandardPriceRowReport[];
 }
 
 export type ResearchJobStatus = 'queued' | 'running' | 'completed' | 'partial' | 'failed';
