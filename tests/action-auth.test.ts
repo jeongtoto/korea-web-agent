@@ -47,27 +47,28 @@ test('Custom GPT operation descriptions stay within the 300-character Action lim
 
 test('Custom GPT Action price schema exposes Naver live payment and effective-price fields', () => {
   const schema = readFileSync('openapi/korea-web-agent-action.yaml', 'utf8');
-  for (const field of [
-    'sellerInstantDiscount',
-    'couponDiscount',
-    'cardInstantDiscount',
-    'cashPaymentPrice',
-    'totalExpectedPoints',
-    'effectivePrice',
-    'dealType',
-    'liveId',
-  ]) {
+  for (const field of ['sellerInstantDiscount','couponDiscount','cardInstantDiscount','cashPaymentPrice','totalExpectedPoints','effectivePrice','dealType','liveId']) {
     assert.match(schema, new RegExp(`\\b${field}:`), `Action schema must expose ${field}`);
   }
 });
 
 test('Custom GPT Action exposes multi-market offers, independent winners, Best 3 and manual checks', () => {
   const schema = readFileSync('openapi/korea-web-agent-action.yaml', 'utf8');
-  for (const field of ['purchaseContext', 'purchaseContextApplied', 'offers', 'bestOffers', 'marketCoverage', 'recommendations', 'manualChecks', 'cardPrice', 'totalCashPrice']) {
+  for (const field of ['purchaseContext','purchaseContextApplied','offers','bestOffers','marketCoverage','recommendations','manualChecks','cardPrice','totalCashPrice']) {
     assert.match(schema, new RegExp(`\\b${field}:`), `Action schema must expose ${field}`);
   }
   assert.match(schema, /owned_card/);
   assert.match(schema, /alternative_condition/);
+});
+
+test('v0.6.0 Action exposes category mode, advertised payments, membership economics, event windows, history and presentation', () => {
+  const schema = readFileSync('openapi/korea-web-agent-action.yaml', 'utf8');
+  assert.match(schema, /version:\s*0\.6\.0/);
+  for (const field of ['researchMode','assumptions','clarificationRequired','clarificationQuestions','paymentPromotions','membershipScenarios','advertisedPayment','priceHistory','presentation','paymentMethod','paymentPrice','startsAt','endsAt','validityStatus']) {
+    assert.match(schema, new RegExp(`\\b${field}:`), `v0.6.0 schema must expose ${field}`);
+  }
+  assert.match(schema, /advertised_payment/);
+  assert.match(schema, /insufficient_history/);
 });
 
 test('Custom GPT contract preserves resolved product identity across follow-up turns', () => {
@@ -77,6 +78,19 @@ test('Custom GPT contract preserves resolved product identity across follow-up t
   assert.match(schema, /brand.*model.*variant/i);
   assert.match(config, /follow-up turn/i);
   assert.match(config, /full resolved product identity/i);
+});
+
+test('Custom GPT no longer hard-codes a private payment profile and follows presentation rows', () => {
+  const config = readFileSync('docs/custom-gpt-config.md', 'utf8');
+  assert.doesNotMatch(config, /삼성 iD SELECT ALL/i);
+  assert.doesNotMatch(config, /신한 ANNIVERSE/i);
+  assert.doesNotMatch(config, /include this confirmed profile in every/i);
+  assert.match(config, /paymentPromotions/);
+  assert.match(config, /membershipScenarios/);
+  assert.match(config, /presentation\.rows/);
+  for (const label of ['현금 실결제가','보유카드가','광고 결제수단 최저가','회원 체감가','비회원 체감가','리퍼\/반품\/중고','180일 가격 위치']) {
+    assert.match(config, new RegExp(label));
+  }
 });
 
 test('agent functions use Action key auth and never authenticate with relay secret', () => {
