@@ -32,15 +32,26 @@ export function buildPresentation(input: PresentationInput): ShoppingPresentatio
 
   const member = input.membershipScenarios?.filter((item) => item.member && item.effectivePrice !== undefined).sort((a, b) => a.effectivePrice! - b.effectivePrice!)[0];
   if (member) rows.push({
-    label: '회원 체감가', amount: member.paymentPrice, market: member.market, membership: member.membership,
-    expectedPoints: member.expectedPoints, effectivePrice: member.effectivePrice, verification: member.verification,
-    retrievedAt: member.retrievedAt, notes: member.notes,
+    label: '회원 체감가',
+    market: member.market,
+    ...(member.paymentPrice !== undefined ? { amount: member.paymentPrice } : {}),
+    ...(member.membership ? { membership: member.membership } : {}),
+    ...(member.expectedPoints !== undefined ? { expectedPoints: member.expectedPoints } : {}),
+    ...(member.effectivePrice !== undefined ? { effectivePrice: member.effectivePrice } : {}),
+    verification: member.verification,
+    retrievedAt: member.retrievedAt,
+    notes: member.notes,
   });
   const nonMember = input.membershipScenarios?.filter((item) => !item.member && item.effectivePrice !== undefined).sort((a, b) => a.effectivePrice! - b.effectivePrice!)[0];
   if (nonMember) rows.push({
-    label: '비회원 체감가', amount: nonMember.paymentPrice, market: nonMember.market,
-    expectedPoints: nonMember.expectedPoints, effectivePrice: nonMember.effectivePrice, verification: nonMember.verification,
-    retrievedAt: nonMember.retrievedAt, notes: nonMember.notes,
+    label: '비회원 체감가',
+    market: nonMember.market,
+    ...(nonMember.paymentPrice !== undefined ? { amount: nonMember.paymentPrice } : {}),
+    ...(nonMember.expectedPoints !== undefined ? { expectedPoints: nonMember.expectedPoints } : {}),
+    ...(nonMember.effectivePrice !== undefined ? { effectivePrice: nonMember.effectivePrice } : {}),
+    verification: nonMember.verification,
+    retrievedAt: nonMember.retrievedAt,
+    notes: nonMember.notes,
   });
   if (input.bestOffers?.alternativeCondition) rows.push(rankedRow('리퍼/반품/중고', input.bestOffers.alternativeCondition));
   if (input.priceHistory) rows.push({
