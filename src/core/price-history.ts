@@ -36,7 +36,8 @@ export function summarizePriceHistory(
     summary.minimum = Math.min(...allValues);
     summary.maximum = Math.max(...allValues);
     summary.mean = allValues.reduce((sum, value) => sum + value, 0) / allValues.length;
-    summary.median = median(allValues);
+    const middle = median(allValues);
+    if (middle !== undefined) summary.median = middle;
   }
   if (valid.length < MIN_HISTORY_OBSERVATIONS || currentPrice === undefined || !summary.mean || summary.minimum === undefined || summary.maximum === undefined) return summary;
 
