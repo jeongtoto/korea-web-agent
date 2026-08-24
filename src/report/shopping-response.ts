@@ -22,8 +22,8 @@ export interface StandardPriceInput {
 export interface StandardPriceRow {
   key: 'cash' | 'card' | 'effective_without_membership' | 'effective_with_membership';
   label: string;
-  amount?: number;
-  condition?: string;
+  amount?: number | undefined;
+  condition?: string | undefined;
 }
 
 export interface EventWindowInput {
@@ -33,8 +33,8 @@ export interface EventWindowInput {
 }
 
 export interface NormalizedEventWindow {
-  startsOn?: string;
-  endsOn?: string;
+  startsOn?: string | undefined;
+  endsOn?: string | undefined;
   status: 'upcoming' | 'active' | 'expired' | 'unknown';
 }
 
