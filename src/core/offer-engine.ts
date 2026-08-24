@@ -12,6 +12,7 @@ const MARKET_DOMAINS: Array<[RegExp, string]> = [
 ];
 const PAYMENT_METHOD_RE = /((?:삼성|신한|현대|국민|KB|롯데|하나|우리|NH|농협|BC|비씨|카카오뱅크|토스뱅크)[\w가-힣 ._-]{0,24}카드|토스\s*페이|카카오\s*페이|네이버\s*페이|삼성\s*페이|페이코)/i;
 const MEMBERSHIP_RE = /(네이버\s*플러스(?:\s*멤버십)?|쿠팡\s*와우|신세계\s*유니버스|SSG\s*멤버십|롯데\s*멤버스)/i;
+const PROMOTION_VALIDITY_RANK: Record<PromotionValidityStatus, number> = { active: 0, unknown: 1, upcoming: 2, expired: 3 };
 
 function compact(value: string): string { return value.replace(/\s+/g, ' ').trim(); }
 function marketFromUrl(url: string): string { try { const host = new URL(url).hostname.toLowerCase(); return MARKET_DOMAINS.find(([p]) => p.test(host))?.[1] ?? host; } catch { return 'unknown'; } }
@@ -71,6 +72,8 @@ function priceForBasis(offer: MarketOffer, basis: OfferPriceBasis, context: Purc
   if (basis === 'alternative_condition') return offer.condition === 'new' || offer.condition === 'unknown' ? undefined : offer.totalCashPrice;
   if (!offer.eligible || (offer.condition !== 'new' && offer.condition !== 'unknown')) return undefined;
   if (basis === 'cash') return offer.totalCashPrice;
+  const inactivePromotion = offer.validityStatus === 'expired' || offer.validityStatus === 'upcoming';
+  if ((basis === 'owned_card' || basis === 'advertised_payment') && inactivePromotion) return undefined;
   if (basis === 'owned_card') return ownedCard(offer.cardName, context) && offer.cardPrice !== undefined && offer.shippingFee !== undefined ? offer.cardPrice + offer.shippingFee : undefined;
   if (basis === 'advertised_payment') return offer.paymentPrice !== undefined && offer.shippingFee !== undefined ? offer.paymentPrice + offer.shippingFee : undefined;
   return offer.effectivePrice;
@@ -104,7 +107,7 @@ export function buildMarketOffer(hit: SearchHit, target: NormalizedTarget, retri
 export function rankMarketOffers(offers: MarketOffer[], context: PurchaseContext = {}): { bestOffers: BestOffers; rankings: RankedOffer[]; paymentPromotions: PaymentPromotion[]; membershipScenarios: MembershipScenario[] } {
   const cash=ranked(offers,'cash',context),owned=ranked(offers,'owned_card',context),advertised=ranked(offers,'advertised_payment',context),effective=ranked(offers,'effective',context),alternative=ranked(offers,'alternative_condition',context); const bestOffers:BestOffers={};
   if(cash[0])bestOffers.cash=cash[0];if(owned[0])bestOffers.ownedCard=owned[0];if(advertised[0])bestOffers.advertisedPayment=advertised[0];if(effective[0])bestOffers.effective=effective[0];if(alternative[0])bestOffers.alternativeCondition=alternative[0];
-  const paymentPromotions:PaymentPromotion[]=offers.filter((o)=>o.eligible&&o.paymentMethod&&o.paymentPrice!==undefined).map((o)=>({method:o.paymentMethod!,amount:o.paymentPrice!+(o.shippingFee??0),market:o.market,url:o.url,verification:o.verification,retrievedAt:o.retrievedAt,conditions:o.conditions,...(o.startsAt?{startsAt:o.startsAt}:{}),...(o.endsAt?{endsAt:o.endsAt}:{}),...(o.validityStatus?{validityStatus:o.validityStatus}:{})})).sort((a,b)=>a.amount-b.amount);
+  const paymentPromotions:PaymentPromotion[]=offers.filter((o)=>o.eligible&&o.paymentMethod&&o.paymentPrice!==undefined).map((o)=>({method:o.paymentMethod!,amount:o.paymentPrice!+(o.shippingFee??0),market:o.market,url:o.url,verification:o.verification,retrievedAt:o.retrievedAt,conditions:o.conditions,...(o.startsAt?{startsAt:o.startsAt}:{}),...(o.endsAt?{endsAt:o.endsAt}:{}),...(o.validityStatus?{validityStatus:o.validityStatus}:{})})).sort((a,b)=>(PROMOTION_VALIDITY_RANK[a.validityStatus??'unknown']-PROMOTION_VALIDITY_RANK[b.validityStatus??'unknown'])||a.amount-b.amount);
   const membershipScenarios:MembershipScenario[]=[];
   for(const o of offers){
     if(!o.eligible)continue;
