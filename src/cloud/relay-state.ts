@@ -1,5 +1,6 @@
 import type { ResearchJob } from '../core/types.ts';
 import { applyPersonalizedRelayResult } from '../relay/merge.ts';
+import { enrichShoppingReport } from '../report/shopping-intelligence-report.ts';
 import {
   RELAY_READ_ONLY_FIELDS,
   signRelayJob,
@@ -57,6 +58,22 @@ async function removeQueueItem(store: JsonKeyValueStore, relayJobId: string): Pr
   await store.delete(pendingKey(relayJobId));
   const ids = await getQueueIds(store);
   await setQueueIds(store, ids.filter((id) => id !== relayJobId));
+}
+
+function preservePublicShoppingContext(before: ResearchJob, after: ResearchJob, completedAt: string): ResearchJob {
+  if (!before.report || !after.report) return after;
+  const previous = before.report;
+  const report = after.report;
+
+  if (previous.priceHistory) report.priceHistory = previous.priceHistory;
+  if (!report.offers && previous.offers) report.offers = previous.offers;
+  if (!report.bestOffers && previous.bestOffers) report.bestOffers = previous.bestOffers;
+  if (!report.marketCoverage && previous.marketCoverage) report.marketCoverage = previous.marketCoverage;
+  if (!report.recommendations && previous.recommendations) report.recommendations = previous.recommendations;
+  if (!report.manualChecks && previous.manualChecks) report.manualChecks = previous.manualChecks;
+
+  enrichShoppingReport(report, completedAt);
+  return after;
 }
 
 export async function saveResearchJob(store: JsonKeyValueStore, job: ResearchJob): Promise<void> {
@@ -159,7 +176,11 @@ export async function completePersistentRelay(
   if (!pending || pending.job.id !== relayJobId) throw new Error('Pending relay job not found');
   const researchJob = await getStoredResearchJob(store, pending.researchJobId);
   if (!researchJob) throw new Error('Stored research job not found');
-  const merged = applyPersonalizedRelayResult(researchJob, rawResult, completedAt);
+  const merged = preservePublicShoppingContext(
+    researchJob,
+    applyPersonalizedRelayResult(researchJob, rawResult, completedAt),
+    completedAt,
+  );
   await saveResearchJob(store, merged);
   await removeQueueItem(store, relayJobId);
   return merged;
