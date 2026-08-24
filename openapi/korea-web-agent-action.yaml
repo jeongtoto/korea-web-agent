@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Korea Web Agent
-  version: 0.5.1
-  description: Read-only multi-market Korean buying research with authenticated local-browser offer verification and category-aware Best 3 recommendations.
+  version: 0.6.0
+  description: Read-only Korean shopping intelligence with category recommendations, exact-SKU validation, payment promotions, membership economics, event validity, and observed 180-day price history.
 servers:
   - url: https://korea-web-agent.netlify.app
 security:
@@ -11,8 +11,8 @@ paths:
   /api/agent/research:
     post:
       operationId: startProductResearch
-      summary: Research a concrete product and decide whether current evidence supports buying, waiting, skipping, or more research.
-      description: Research exactly one product or recommendation category per call. Split compound requests. Pass stated cards/memberships. Preserve resolved SKU details from conversation context.
+      summary: Research one exact product or one recommendation category and return a structured shopping decision.
+      description: Research exactly one product or recommendation category per call. Preserve resolved brand/model/variant from conversation context. Pass purchaseContext only when explicitly supplied; advertised payment promotions are discovered independently.
       requestBody:
         required: true
         content:
@@ -26,12 +26,12 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 2000
-                  description: One product or recommendation category only. Include full brand/model/variant/bundle identity. Split multi-product requests into separate Action calls.
+                  description: One exact product or one recommendation category. Include known SKU-defining model, variant, size, generation, bundle, and accessory codes.
                 url:
                   type: string
                   format: uri
                   maxLength: 4000
-                  description: Optional public product or Naver Shopping Live URL when the user supplied one.
+                  description: Optional public retailer, product, or Shopping Live URL.
                 purchaseContext:
                   $ref: '#/components/schemas/PurchaseContext'
       responses:
@@ -39,25 +39,20 @@ paths:
           description: Research completed without a pending authenticated-browser job.
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/AgentResearchResult'
+              schema: { $ref: '#/components/schemas/AgentResearchResult' }
         '202':
-          description: Public research completed and an authenticated PC browser result is pending. Poll pollUrl or getProductResearchResult using jobId.
+          description: Public research completed and an authenticated PC browser result is pending. Poll using the returned jobId.
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/AgentResearchResult'
-        '400':
-          $ref: '#/components/responses/Error'
-        '401':
-          $ref: '#/components/responses/Error'
-        '503':
-          $ref: '#/components/responses/Error'
+              schema: { $ref: '#/components/schemas/AgentResearchResult' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /api/agent/job:
     get:
       operationId: getProductResearchResult
       summary: Get the latest result for a product research job.
-      description: Call after startProductResearch returns status=running. Pass the returned jobId unchanged and continue only while status is running.
+      description: Call after startProductResearch returns status=running. Pass jobId unchanged and continue only while status remains running; stop on completed, partial, or failed.
       parameters:
         - name: jobId
           in: query
@@ -71,14 +66,10 @@ paths:
           description: Current or final structured research result.
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/AgentResearchResult'
-        '401':
-          $ref: '#/components/responses/Error'
-        '404':
-          $ref: '#/components/responses/Error'
-        '503':
-          $ref: '#/components/responses/Error'
+              schema: { $ref: '#/components/schemas/AgentResearchResult' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
     bearerAuth:
@@ -94,8 +85,7 @@ components:
             type: object
             required: [error]
             properties:
-              error:
-                type: string
+              error: { type: string }
   schemas:
     ResearchIntent:
       type: object
@@ -106,6 +96,26 @@ components:
         priceSensitive: { type: boolean }
         personalizedPriceUseful: { type: boolean }
         specOnly: { type: boolean }
+    PurchaseContext:
+      type: object
+      additionalProperties: false
+      description: Request-scoped shopping context only. The service does not create a durable user payment profile. Card names only; never card numbers.
+      properties:
+        ownedCards:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 200 }
+          description: Cards explicitly stated by the user for this request/conversation. Never infer ownership from an advertised promotion.
+        memberships:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 200 }
+        budget: { type: number, exclusiveMinimum: 0 }
+        region: { type: string, maxLength: 200 }
+        preferences:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 200 }
     PriceSnapshot:
       type: object
       required: [currency]
@@ -136,25 +146,47 @@ components:
         liveStatus: { type: string }
         liveEndAt: { type: string }
         sourceUrl: { type: string, format: uri }
-    PurchaseContext:
+    ProductTarget:
       type: object
-      additionalProperties: false
+      required: [kind]
       properties:
-        ownedCards:
+        kind: { type: string, enum: [product, place, service, unknown] }
+        brand: { type: string }
+        name: { type: string }
+        model: { type: string }
+        variant: { type: string }
+        productId: { type: string }
+        liveId: { type: string }
+        sourceHost: { type: string }
+        canonicalUrl: { type: string, format: uri }
+    ProductCandidate:
+      type: object
+      required: [target, score, sourceUrls, title]
+      properties:
+        target: { $ref: '#/components/schemas/ProductTarget' }
+        score: { type: number }
+        sourceUrls:
           type: array
-          maxItems: 20
-          items: { type: string, maxLength: 200 }
-          description: Cards the user actually owns. Never infer ownership from a displayed promotion.
-        memberships:
+          items: { type: string, format: uri }
+        title: { type: string }
+    ProductIdentity:
+      type: object
+      required: [kind, identityConfidence, ambiguous, candidates]
+      properties:
+        kind: { type: string, enum: [product, place, service, unknown] }
+        brand: { type: string }
+        name: { type: string }
+        model: { type: string }
+        variant: { type: string }
+        productId: { type: string }
+        liveId: { type: string }
+        sourceHost: { type: string }
+        canonicalUrl: { type: string, format: uri }
+        identityConfidence: { type: number, minimum: 0, maximum: 1 }
+        ambiguous: { type: boolean }
+        candidates:
           type: array
-          maxItems: 20
-          items: { type: string, maxLength: 200 }
-        budget: { type: number, exclusiveMinimum: 0 }
-        region: { type: string, maxLength: 200 }
-        preferences:
-          type: array
-          maxItems: 20
-          items: { type: string, maxLength: 200 }
+          items: { $ref: '#/components/schemas/ProductCandidate' }
     MarketOffer:
       type: object
       required: [id, market, title, url, currency, retrievedAt, verification, condition, identityScore, bundleComplete, eligible, conditions, riskFlags, exclusionReasons]
@@ -178,12 +210,25 @@ components:
         membershipPrice: { type: number }
         cardPrice: { type: number }
         cardName: { type: string }
+        paymentMethod: { type: string, description: Advertised card/pay method such as a named card, Toss Pay, Kakao Pay, or Naver Pay. Does not imply ownership. }
+        paymentPrice: { type: number }
+        membershipName: { type: string }
+        nonMemberPrice: { type: number }
+        memberPoints: { type: number }
+        nonMemberPoints: { type: number }
         points: { type: number }
         shippingFee: { type: number }
         installationFee: { type: number }
         totalCashPrice: { type: number }
         effectivePrice: { type: number }
         availability: { type: string }
+        warranty: { type: string }
+        returnPolicy: { type: string }
+        observedAt: { type: string, format: date-time }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        timeZone: { type: string }
+        validityStatus: { type: string, enum: [active, upcoming, expired, unknown] }
         conditions: { type: array, items: { type: string } }
         riskFlags: { type: array, items: { type: string } }
         exclusionReasons: { type: array, items: { type: string } }
@@ -191,7 +236,7 @@ components:
       type: object
       required: [basis, rank, amount, offer, reasons]
       properties:
-        basis: { type: string, enum: [cash, owned_card, effective, alternative_condition] }
+        basis: { type: string, enum: [cash, owned_card, advertised_payment, effective, alternative_condition] }
         rank: { type: integer, minimum: 1 }
         amount: { type: number }
         offer: { $ref: '#/components/schemas/MarketOffer' }
@@ -201,8 +246,37 @@ components:
       properties:
         cash: { $ref: '#/components/schemas/RankedOffer' }
         ownedCard: { $ref: '#/components/schemas/RankedOffer' }
+        advertisedPayment: { $ref: '#/components/schemas/RankedOffer' }
         effective: { $ref: '#/components/schemas/RankedOffer' }
         alternativeCondition: { $ref: '#/components/schemas/RankedOffer' }
+    PaymentPromotion:
+      type: object
+      required: [method, amount, market, url, verification, retrievedAt, conditions]
+      properties:
+        method: { type: string }
+        amount: { type: number }
+        market: { type: string }
+        url: { type: string, format: uri }
+        verification: { type: string, enum: [checkout_verified, page_verified, search_metadata, unverified] }
+        retrievedAt: { type: string, format: date-time }
+        conditions: { type: array, items: { type: string } }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        validityStatus: { type: string, enum: [active, upcoming, expired, unknown] }
+    MembershipScenario:
+      type: object
+      required: [member, market, url, verification, retrievedAt, notes]
+      properties:
+        member: { type: boolean }
+        membership: { type: string }
+        market: { type: string }
+        url: { type: string, format: uri }
+        paymentPrice: { type: number }
+        expectedPoints: { type: number }
+        effectivePrice: { type: number }
+        verification: { type: string, enum: [checkout_verified, page_verified, search_metadata, unverified] }
+        retrievedAt: { type: string, format: date-time }
+        notes: { type: array, items: { type: string } }
     MarketCoverage:
       type: object
       required: [market, attempted, found, verified, status]
@@ -244,6 +318,47 @@ components:
         type: { type: string, enum: [login, captcha, owned_card, membership, availability, offline_quote, used_condition] }
         message: { type: string }
         url: { type: string, format: uri }
+    PriceHistory:
+      type: object
+      required: [coverage, observationCount, position]
+      properties:
+        coverage: { type: string, enum: [observed_only, external_supported] }
+        observationCount: { type: integer, minimum: 0 }
+        firstObservedAt: { type: string, format: date-time }
+        lastObservedAt: { type: string, format: date-time }
+        currentPrice: { type: number }
+        previousPrice: { type: number }
+        changeFromPrevious: { type: number }
+        minimum: { type: number }
+        maximum: { type: number }
+        mean: { type: number }
+        median: { type: number }
+        percentile: { type: number }
+        position: { type: string, enum: [new_low, near_low, below_average, around_average, above_average, new_high, insufficient_history] }
+    PresentationRow:
+      type: object
+      required: [label, verification, retrievedAt, notes]
+      properties:
+        label: { type: string, enum: [현금 실결제가, 보유카드가, 광고 결제수단 최저가, 회원 체감가, 비회원 체감가, 리퍼/반품/중고, 180일 가격 위치] }
+        amount: { type: number }
+        market: { type: string }
+        seller: { type: string }
+        paymentMethod: { type: string }
+        membership: { type: string }
+        expectedPoints: { type: number }
+        effectivePrice: { type: number }
+        eventPeriod: { type: string }
+        verification: { type: string }
+        retrievedAt: { type: string, format: date-time }
+        notes: { type: array, items: { type: string } }
+    Presentation:
+      type: object
+      required: [schemaVersion, rows]
+      properties:
+        schemaVersion: { type: string, const: '1' }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/PresentationRow' }
     ConfidenceDimensions:
       type: object
       properties:
@@ -253,47 +368,6 @@ components:
         reviews: { type: number, minimum: 0, maximum: 1 }
         negativeSignals: { type: number, minimum: 0, maximum: 1 }
         personalizedPrice: { type: number, minimum: 0, maximum: 1 }
-    ProductCandidate:
-      type: object
-      properties:
-        target: { $ref: '#/components/schemas/ProductTarget' }
-        title: { type: string }
-        score: { type: number }
-        sourceUrls:
-          type: array
-          items: { type: string, format: uri }
-    ProductIdentity:
-      type: object
-      required: [kind, identityConfidence, ambiguous, candidates]
-      properties:
-        kind: { type: string, enum: [product, place, service, unknown] }
-        brand: { type: string }
-        name: { type: string }
-        model: { type: string }
-        variant: { type: string }
-        productId: { type: string }
-        liveId: { type: string }
-        sourceHost: { type: string }
-        canonicalUrl: { type: string, format: uri }
-        identityConfidence: { type: number, minimum: 0, maximum: 1 }
-        ambiguous: { type: boolean }
-        candidates:
-          type: array
-          items:
-            $ref: '#/components/schemas/ProductCandidate'
-    ProductTarget:
-      type: object
-      required: [kind]
-      properties:
-        kind: { type: string, enum: [product, place, service, unknown] }
-        brand: { type: string }
-        name: { type: string }
-        model: { type: string }
-        variant: { type: string }
-        productId: { type: string }
-        liveId: { type: string }
-        sourceHost: { type: string }
-        canonicalUrl: { type: string, format: uri }
     RelaySummary:
       type: object
       required: [requested, available, used, mode]
@@ -322,44 +396,35 @@ components:
         evidenceCount: { type: integer, minimum: 0 }
     AgentResearchResult:
       type: object
-      required:
-        - status
-        - query
-        - intent
-        - product
-        - decision
-        - confidence
-        - relay
-        - summary
-        - reasons
-        - strengths
-        - weaknesses
-        - missingInformation
-        - evidence
-        - sourceCoverage
-        - errors
+      required: [status, query, intent, product, researchMode, assumptions, clarificationRequired, clarificationQuestions, decision, confidence, relay, summary, reasons, strengths, weaknesses, missingInformation, evidence, sourceCoverage, errors]
       properties:
         status: { type: string, enum: [queued, running, completed, partial, failed] }
         jobId: { type: string }
         pollUrl: { type: string }
         query: { type: string }
-        intent:
-          $ref: '#/components/schemas/ResearchIntent'
-        product:
-          $ref: '#/components/schemas/ProductIdentity'
+        intent: { $ref: '#/components/schemas/ResearchIntent' }
+        product: { $ref: '#/components/schemas/ProductIdentity' }
+        researchMode: { type: string, enum: [exact_product, category_recommendation] }
+        assumptions: { type: array, items: { type: string } }
+        clarificationRequired: { type: boolean }
+        clarificationQuestions: { type: array, maxItems: 3, items: { type: string } }
         decision: { type: string, enum: [BUY, WAIT, SKIP, INSUFFICIENT] }
         confidence: { type: number, minimum: 0, maximum: 1 }
-        confidenceDimensions:
-          $ref: '#/components/schemas/ConfidenceDimensions'
-        price:
-          $ref: '#/components/schemas/PriceSnapshot'
-        personalizedPrice:
-          $ref: '#/components/schemas/PriceSnapshot'
+        confidenceDimensions: { $ref: '#/components/schemas/ConfidenceDimensions' }
+        price: { $ref: '#/components/schemas/PriceSnapshot' }
+        personalizedPrice: { $ref: '#/components/schemas/PriceSnapshot' }
         offers:
           type: array
           items: { $ref: '#/components/schemas/MarketOffer' }
-        bestOffers:
-          $ref: '#/components/schemas/BestOffers'
+        bestOffers: { $ref: '#/components/schemas/BestOffers' }
+        paymentPromotions:
+          type: array
+          items: { $ref: '#/components/schemas/PaymentPromotion' }
+        membershipScenarios:
+          type: array
+          items: { $ref: '#/components/schemas/MembershipScenario' }
+        priceHistory: { $ref: '#/components/schemas/PriceHistory' }
+        presentation: { $ref: '#/components/schemas/Presentation' }
         marketCoverage:
           type: array
           items: { $ref: '#/components/schemas/MarketCoverage' }
@@ -369,29 +434,15 @@ components:
         manualChecks:
           type: array
           items: { $ref: '#/components/schemas/ManualCheck' }
-        relay:
-          $ref: '#/components/schemas/RelaySummary'
+        relay: { $ref: '#/components/schemas/RelaySummary' }
         summary: { type: string }
-        reasons:
-          type: array
-          items: { type: string }
-        strengths:
-          type: array
-          items: { type: string }
-        weaknesses:
-          type: array
-          items: { type: string }
-        missingInformation:
-          type: array
-          items: { type: string }
+        reasons: { type: array, items: { type: string } }
+        strengths: { type: array, items: { type: string } }
+        weaknesses: { type: array, items: { type: string } }
+        missingInformation: { type: array, items: { type: string } }
         evidence:
           type: array
-          items:
-            $ref: '#/components/schemas/EvidenceSummary'
-        sourceCoverage:
-          $ref: '#/components/schemas/SourceCoverage'
-        purchaseContextApplied:
-          $ref: '#/components/schemas/PurchaseContext'
-        errors:
-          type: array
-          items: { type: string }
+          items: { $ref: '#/components/schemas/EvidenceSummary' }
+        sourceCoverage: { $ref: '#/components/schemas/SourceCoverage' }
+        purchaseContextApplied: { $ref: '#/components/schemas/PurchaseContext' }
+        errors: { type: array, items: { type: string } }
