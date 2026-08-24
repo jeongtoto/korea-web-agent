@@ -6,6 +6,7 @@ import {
   comparePriceSnapshots,
   normalizeSku,
   redactSensitiveLogValue,
+  redactSensitiveText,
   retryPlanForFailure,
   sameSku,
 } from '../src/core/shopping-intelligence.ts';
@@ -81,4 +82,17 @@ test('redacts cards, memberships, budgets, tokens and nested values from logs', 
     authorization: '[REDACTED]',
     nested: { cardName: '[REDACTED]', safe: 'ok' },
   });
+});
+
+
+test('redacts bearer tokens, configured secrets, and long payment-number patterns from error text', () => {
+  const secret = '0123456789abcdef0123456789abcdef';
+  const text = redactSensitiveText(
+    `failed Authorization: Bearer abc.def.ghi secret=${secret} card 4111 1111 1111 1111`,
+    [secret],
+  );
+  assert.equal(text.includes(secret), false);
+  assert.equal(/Bearer\s+abc\.def\.ghi/i.test(text), false);
+  assert.equal(text.includes('4111 1111 1111 1111'), false);
+  assert.match(text, /REDACTED/);
 });

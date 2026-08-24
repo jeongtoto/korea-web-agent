@@ -23,9 +23,9 @@ class MemoryStore implements JsonKeyValueStore {
 const SECRET = '0123456789abcdef0123456789abcdef';
 const URL = 'https://brand.naver.com/mildo/products/7322162980';
 
-function job(): ResearchJob {
+function job(id = 'research-1'): ResearchJob {
   return {
-    id: 'research-1', status: 'running', request: { question: '어때?', url: URL, includeLocalRelay: true, category: 'product' },
+    id, status: 'running', request: { question: '어때?', url: URL, includeLocalRelay: true, category: 'product' },
     createdAt: '2026-08-17T00:00:00.000Z', updatedAt: '2026-08-17T00:00:00.000Z',
     target: { kind: 'product', brand: 'mildo', productId: '7322162980', canonicalUrl: URL },
     sourceResults: [], evidence: [], relay: { available: true, used: false, mode: 'public_only' }, errors: [],
@@ -62,30 +62,43 @@ test('persistent relay survives independent store callers and completes the stor
   assert.equal(await pollPersistentRelay(store, 1_500), null);
 });
 
-test('persistent relay reports offline outside TTL and rejects a second active job instead of overwriting it', async () => {
+test('persistent relay reports offline outside TTL and queues multiple research jobs without overwriting', async () => {
   const store = new MemoryStore();
   await markPersistentConnectorSeen(store, 1_000);
   assert.equal((await getPersistentRelayStatus(store, 2_000, 500)).online, false);
-  await queuePersistentRelay(store, 'research-1', URL, SECRET, 2_000);
-  await assert.rejects(() => queuePersistentRelay(store, 'research-2', URL, SECRET, 2_100), /busy/i);
+
+  await saveResearchJob(store, job('research-1'));
+  await saveResearchJob(store, job('research-2'));
+  const first = await queuePersistentRelay(store, 'research-1', URL, SECRET, 2_000, 30_000);
+  const second = await queuePersistentRelay(store, 'research-2', URL, SECRET, 2_100, 30_000);
+
+  assert.notEqual(first.id, second.id);
+  assert.equal((await pollPersistentRelay(store, 2_200))?.id, first.id);
+  await completePersistentRelay(store, first.id, { salePrice: 400000 }, '2026-08-17T00:00:03.000Z');
+  assert.equal((await pollPersistentRelay(store, 2_300))?.id, second.id);
+  await completePersistentRelay(store, second.id, { salePrice: 390000 }, '2026-08-17T00:00:04.000Z');
+
+  assert.equal((await getStoredResearchJob(store, 'research-1'))?.report?.personalizedPrice?.salePrice, 400000);
+  assert.equal((await getStoredResearchJob(store, 'research-2'))?.report?.personalizedPrice?.salePrice, 390000);
 });
 
-test('expired pending relay jobs are discarded on poll', async () => {
+test('expired first relay job is discarded without blocking the next queued job', async () => {
   const store = new MemoryStore();
-  const signed = await queuePersistentRelay(store, 'research-1', URL, SECRET, 1_000, 200);
-  assert.ok(signed);
-  assert.equal(await pollPersistentRelay(store, 1_500), null);
+  await queuePersistentRelay(store, 'research-1', URL, SECRET, 1_000, 200);
+  const second = await queuePersistentRelay(store, 'research-2', URL, SECRET, 1_100, 2_000);
+  assert.equal((await pollPersistentRelay(store, 1_500))?.id, second.id);
 });
 
-
-test('persistent relay failure releases the queue and restores a public-result terminal state', async () => {
+test('persistent relay failure releases only the matching queue item and restores a public-result terminal state', async () => {
   const store = new MemoryStore();
-  await saveResearchJob(store, job());
-  const signed = await queuePersistentRelay(store, 'research-1', URL, SECRET, 1_000);
-  const failed = await failPersistentRelay(store, signed.id, 'CAPTCHA required', '2026-08-17T00:00:10.000Z');
+  await saveResearchJob(store, job('research-1'));
+  await saveResearchJob(store, job('research-2'));
+  const first = await queuePersistentRelay(store, 'research-1', URL, SECRET, 1_000, 30_000);
+  const second = await queuePersistentRelay(store, 'research-2', URL, SECRET, 1_100, 30_000);
+  const failed = await failPersistentRelay(store, first.id, 'CAPTCHA required', '2026-08-17T00:00:10.000Z');
   assert.equal(failed.status, 'completed');
   assert.equal(failed.relay.used, false);
   assert.match(failed.relay.message ?? '', /CAPTCHA/i);
   assert.ok(failed.errors.some((error) => error.includes('local_relay')));
-  assert.equal(await pollPersistentRelay(store, 1_500), null);
+  assert.equal((await pollPersistentRelay(store, 1_500))?.id, second.id);
 });

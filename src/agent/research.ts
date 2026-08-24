@@ -20,6 +20,10 @@ import type {
   ResearchJob,
   ResearchJobStatus,
   ResearchRequest,
+  PriceHistoryReport,
+  MembershipScenariosReport,
+  EventWindowReport,
+  StandardPriceRowReport,
 } from '../core/types.ts';
 import { resolveProduct } from '../orchestrator/product-resolver.ts';
 import type { SearchHit } from '../providers/index.ts';
@@ -81,6 +85,10 @@ export interface AgentResearchResult {
   marketCoverage?: MarketCoverage[];
   recommendations?: ProductRecommendation[];
   manualChecks?: ManualCheck[];
+  priceHistory?: PriceHistoryReport;
+  membershipScenarios?: MembershipScenariosReport;
+  eventWindow?: EventWindowReport;
+  standardPriceRows?: StandardPriceRowReport[];
   relay: AgentRelaySummary;
   summary: string;
   reasons: string[];
@@ -107,14 +115,20 @@ export function validateAgentResearchInput(value: unknown): AgentResearchInput {
   if (object.purchaseContext !== undefined) {
     if (!object.purchaseContext || typeof object.purchaseContext !== 'object' || Array.isArray(object.purchaseContext)) throw new Error('purchaseContext is invalid');
     const raw = object.purchaseContext as Record<string, unknown>;
-    const allowed = new Set(['ownedCards', 'memberships', 'budget', 'region', 'preferences']);
+    const allowed = new Set(['ownedCards', 'paymentMethods', 'memberships', 'budget', 'region', 'preferences']);
     if (Object.keys(raw).some((key) => !allowed.has(key))) throw new Error('purchaseContext contains unsupported fields');
     const context: PurchaseContext = {};
-    for (const key of ['ownedCards', 'memberships', 'preferences'] as const) {
+    for (const key of ['ownedCards', 'paymentMethods', 'memberships', 'preferences'] as const) {
       const value = raw[key];
       if (value === undefined) continue;
       if (!Array.isArray(value) || value.length > 20 || value.some((item) => typeof item !== 'string' || !item.trim() || item.length > 200)) throw new Error(`purchaseContext.${key} is invalid`);
-      if (key === 'ownedCards' && value.some((item) => /(?:\d[ -]?){12,19}/.test(item as string))) throw new Error('purchaseContext.ownedCards accepts card names only, never card numbers');
+      const containsSensitiveNumber = value.some((item) => /(?:\d[ -]?){12,19}/.test(item as string));
+      if (key === 'ownedCards' && containsSensitiveNumber) {
+        throw new Error('purchaseContext.ownedCards accepts card names only, never card numbers');
+      }
+      if (key === 'paymentMethods' && containsSensitiveNumber) {
+        throw new Error('purchaseContext.paymentMethods accepts payment method names only, never card or account numbers');
+      }
       context[key] = value.map((item) => (item as string).trim());
     }
     if (raw.budget !== undefined) {
@@ -201,7 +215,7 @@ export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {
     sourceCoverage: sourceCoverage(job),
     errors: [...job.errors],
   };
-  if (job.status === 'running') result.pollUrl = `/api/agent/job?jobId=${encodeURIComponent(job.id)}`;
+  if (job.status === 'running' || job.status === 'queued') result.pollUrl = `/api/agent/job?jobId=${encodeURIComponent(job.id)}`;
   if (report?.confidenceDimensions) result.confidenceDimensions = report.confidenceDimensions;
   if (report?.price) result.price = report.price;
   if (report?.personalizedPrice) result.personalizedPrice = report.personalizedPrice;
@@ -210,6 +224,10 @@ export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {
   if (report?.marketCoverage) result.marketCoverage = report.marketCoverage;
   if (report?.recommendations) result.recommendations = report.recommendations;
   if (report?.manualChecks) result.manualChecks = report.manualChecks;
+  if (report?.priceHistory) result.priceHistory = report.priceHistory;
+  if (report?.membershipScenarios) result.membershipScenarios = report.membershipScenarios;
+  if (report?.eventWindow) result.eventWindow = report.eventWindow;
+  if (report?.standardPriceRows) result.standardPriceRows = report.standardPriceRows;
   if (job.request.purchaseContext) result.purchaseContextApplied = job.request.purchaseContext;
   return result;
 }
@@ -267,7 +285,7 @@ function relayDiscoveryQueries(target: NormalizedTarget): string[] {
     'site:11st.co.kr',
     'site:gmarket.co.kr',
     'site:auction.co.kr',
-  ].map((site) => `${identity} 가격 카드 쿠폰 ${site}`);
+  ].map((site) => `${identity} 가격 카드 쿠폰 토스페이 카카오페이 네이버페이 ${site}`);
 }
 
 function marketName(url: string): string {

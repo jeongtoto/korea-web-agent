@@ -1,4 +1,4 @@
-# Korea Web Agent v0.5
+# Korea Web Agent v0.6
 
 Korea Web Agent is a read-only Korean product-research backend designed to be called from a dedicated Custom GPT. The primary experience is now natural-language product research inside ChatGPT; the existing PWA remains available as a diagnostic/manual testing surface.
 
@@ -10,11 +10,14 @@ Example:
 
 The agent resolves an exact product or a recommendation category, gathers attributable public evidence, normalizes multi-market offers, and conditionally asks a locally authenticated PC browser to verify up to eight difficult commerce pages. It separates cash, owned-card, membership/coupon, points-adjusted, refurb/open-box, and used prices and returns a conservative `BUY / WAIT / SKIP / INSUFFICIENT` result plus Best 3 recommendations when appropriate.
 
-## v0.5 shopping decision behavior
+## v0.6 cloud-first shopping behavior
 
 - Explicit market coverage for Naver, Coupang, KREAM, Danawa, Enuri, major open markets/retailers, official/offline discovery, overseas marketplaces, refurb/returns, and used marketplaces.
 - Exact SKU, variant, bundle, condition, availability, shipping, and verification tier are part of offer eligibility.
-- `totalCashPrice`, owned-card `cardPrice`, and points-adjusted `effectivePrice` are ranked separately.
+- `totalCashPrice`, owned-card `cardPrice`, conditional `paymentPrice`, and points-adjusted `effectivePrice` are ranked separately.
+- Request-scoped `paymentMethods` supports public conditions such as Toss Pay, Kakao Pay, Naver Pay, and PAYCO without requiring a persistent user profile.
+- Exact normalized SKU price observations are retained for 183 days to report previous-price movement and six-month position.
+- ChatGPT Action research is queued into a Netlify Background Function so long-running public research does not depend on the user's PC.
 - A card promotion cannot win the owned-card ranking unless the request says the user owns that card.
 - Search metadata remains discovery-grade; authenticated page reads replace the same URL with a higher verification tier.
 - The signed read-only Relay can inspect a bounded batch of at most eight URLs in one browser session.
@@ -43,18 +46,21 @@ Custom GPT
    |
    | Bearer KWA_ACTION_API_KEY
    v
-Netlify /api/agent/*
+Netlify /api/agent/research
    |
-   +--> product resolver -> public research -> evidence matcher -> report
+   +--> queued job state in Netlify Blobs
    |
-   +--> when purchase/price intent requires it
+   +--> Netlify Background Function
            |
-           v
-       persistent relay queue
-           ^
-           | outbound HTTPS polling with KWA_RELAY_SECRET
+           +--> resolver -> multi-source public research -> offer/report engine
            |
-       user's PC connector -> dedicated logged-in Chrome profile
+           +--> 183-day exact-SKU price history
+           |
+           +--> optional persistent Relay queue
+                    ^
+                    | outbound HTTPS polling with KWA_RELAY_SECRET
+                    |
+             Windows Local Agent -> dedicated logged-in Chrome profile
 ```
 
 Netlify is a backend. Users do not need to open the Netlify dashboard/PWA for normal Custom GPT use.
@@ -93,23 +99,32 @@ Never reuse one secret as the other. Never commit either value to GitHub or past
 
 Use a dedicated browser profile such as `$HOME\.kwa-profile`, never the ordinary daily Chrome profile. Log in to Naver/Coupang directly in that dedicated browser.
 
-After cloning/updating the repository:
+After cloning/updating the repository, install dependencies once and register the per-user Local Agent:
 
 ```powershell
 cd "$HOME\korea-web-agent"
 npm ci
 npm install --no-save playwright-core
 
-$Chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
 $secret = Read-Host "Netlify Relay Secret" -AsSecureString
-
-.\scripts\start-connector.ps1 `
-    -CloudUrl "https://korea-web-agent.netlify.app" `
-    -RelaySecret $secret `
-    -ChromePath $Chrome
+.\scripts\install-local-agent.ps1 -RelaySecret $secret
 ```
 
-The connector repeatedly makes outbound HTTPS requests:
+The installer encrypts the relay secret with Windows DPAPI, restricts the local configuration file ACL, and registers a hidden `KoreaWebAgent` Scheduled Task at user logon. The scheduled-task arguments never contain the relay secret. Normal daily use does not require opening PowerShell.
+
+To remove automatic startup while preserving the encrypted local configuration:
+
+```powershell
+.\scripts\uninstall-local-agent.ps1
+```
+
+To remove both the task and local configuration:
+
+```powershell
+.\scripts\uninstall-local-agent.ps1 -RemoveConfig
+```
+
+The Local Agent repeatedly makes outbound HTTPS requests:
 
 ```text
 PC -> POST /api/relay/poll
@@ -152,8 +167,8 @@ Recommendation request with actual purchase context:
 {
   "query": "에이스 하이테크 레드 침대에 어울리는 퀸 이불을 디자인, 품질, 리뷰, 관리, 가격까지 비교해 Best 3 추천해줘",
   "purchaseContext": {
-    "ownedCards": ["삼성카드"],
-    "memberships": ["네이버플러스", "쿠팡 와우"],
+    "paymentMethods": ["토스페이", "카카오페이"],
+    "memberships": ["네이버플러스"],
     "budget": 300000,
     "region": "서울",
     "preferences": ["세탁기 가능", "사계절", "먼지 적음"]
@@ -170,7 +185,7 @@ Optional URL request:
 }
 ```
 
-If the authenticated PC result is still pending, the response uses `status: "running"`, returns a `jobId`, and supplies a `pollUrl`.
+`POST /api/agent/research` queues the cloud job and returns `status: "queued"`, a `jobId`, and `pollUrl`. Poll while the status is `queued` or `running`. A running result may mean the Background Function is still researching or that optional authenticated Relay enrichment is pending.
 
 Status endpoint:
 
@@ -179,7 +194,7 @@ GET /api/agent/jobs/<job-id>
 Authorization: Bearer <KWA_ACTION_API_KEY>
 ```
 
-The final compact response includes resolved identity, decision/confidence dimensions, legacy public/personalized prices, normalized `offers`, independent `bestOffers`, `marketCoverage`, Best 3+ `recommendations`, `manualChecks`, relay status, evidence summaries/source URLs, and safe errors.
+The final compact response includes resolved identity, decision/confidence dimensions, public/personalized prices, normalized `offers`, independent `bestOffers`, `marketCoverage`, Best 3+ `recommendations`, `priceHistory`, member/non-member `membershipScenarios`, `eventWindow`, stable `standardPriceRows`, `manualChecks`, relay status, evidence summaries/source URLs, and safe errors.
 
 The legacy endpoints remain for PWA/debug compatibility:
 
@@ -211,7 +226,7 @@ Recommended GPT behavior:
 
 - Call `startProductResearch` for a concrete product when the user asks whether it is good, worth buying, currently cheap, a good value, or asks for review/price synthesis.
 - Also call it for exact product specification research when public evidence is needed.
-- If the result is `running`, call `getProductResearchResult` using `jobId` until a terminal state is returned within a bounded number of retries.
+- If the result is `queued` or `running`, call `getProductResearchResult` using `jobId` until a terminal state is returned within a bounded number of retries.
 - Treat `INSUFFICIENT` as a valid outcome; do not invent a BUY/WAIT decision.
 - Do not call the Action for unrelated casual questions.
 
@@ -287,11 +302,11 @@ Most Korean source families currently use public search metadata unless a direct
 - The resolver is deterministic and conservative. Ambiguous products may require a model code or URL.
 - Search-result metadata remains weaker than directly retrieved product/review pages.
 - Site DOMs change; Naver/Coupang authenticated selectors include site-aware deterministic groups plus fallbacks, but they may require maintenance.
-- Historical price tracking is not yet a durable price database. The engine can use discoverable price/discount signals but does not promise complete all-time-low history.
+- Exact-SKU public cash observations are retained for a rolling 183-day window. This supports six-month-relative analysis but does not prove an all-time historical low or fill periods before the SKU was first observed.
 - Search engines and commerce sites can omit or stale-index conditional prices; `verification` and `retrievedAt` must be shown with the result.
 - Local/offline and used listings remain region-, availability-, and condition-dependent and require the emitted manual check.
 - Recommendation scoring is deterministic and evidence-aware, but visual fit is text-signal based unless the caller supplies explicit colors/materials/preferences.
-- One signed Relay batch is active at a time in the current serverless relay design; each batch is bounded to eight pages.
+- Multiple Relay jobs can remain queued without overwriting each other. A PC connector processes signed read-only jobs sequentially, with each batch bounded to eight pages.
 
 ## Development and verification
 

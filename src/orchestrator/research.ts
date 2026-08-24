@@ -1,6 +1,7 @@
 import { normalizeEvidence } from '../core/evidence.ts';
 import { matchEvidenceToProduct } from '../core/product-match.ts';
 import { deriveExplicitSearchSignals } from '../core/search-signals.ts';
+import { withRetry } from '../core/retry.ts';
 import type {
   EvidenceItem,
   NormalizedTarget,
@@ -273,7 +274,7 @@ export async function runResearch(
   if (request.url) {
     const startedAt = timestamp(deps);
     try {
-      const page = await deps.directPage(request.url);
+      const { value: page } = await withRetry(() => deps.directPage(request.url!));
       target = mergeTargetFromPage(target, page);
       evidence.push(...page.evidence);
       sourceResults.push(sourceResult('direct_page', true, startedAt, timestamp(deps), page.evidence));
@@ -290,7 +291,7 @@ export async function runResearch(
       const startedAt = timestamp(deps);
       const sourceName = source.id === 'general' ? 'public_search' : source.id;
       try {
-        const hits = await deps.publicSearch(source.query);
+        const { value: hits } = await withRetry(() => deps.publicSearch(source.query));
         const searchEvidence = hits
           .slice(0, source.maxHits)
           .map((hit) => searchHitEvidence(hit, timestamp(deps), target, source))
@@ -320,7 +321,7 @@ export async function runResearch(
       .join(' ')
       .slice(0, 260);
     try {
-      const academicHits = await deps.academicSearch(academicQuery);
+      const { value: academicHits } = await withRetry(() => deps.academicSearch!(academicQuery));
       const academicEvidence = academicHits.slice(0, 6).map((hit) => academicHitEvidence(hit, timestamp(deps)));
       evidence.push(...academicEvidence);
       sourceResults.push(sourceResult('crossref', true, startedAt, timestamp(deps), academicEvidence));
@@ -405,8 +406,8 @@ export async function runResearch(
     });
     const deduplicatedOffers = [...new Map(discoveredOffers.map((offer) => [offer.url, offer])).values()]
       .sort((a, b) => Number(b.eligible) - Number(a.eligible)
-        || Math.min(a.cardPrice ?? Infinity, a.totalCashPrice ?? Infinity, a.effectivePrice ?? Infinity)
-          - Math.min(b.cardPrice ?? Infinity, b.totalCashPrice ?? Infinity, b.effectivePrice ?? Infinity)
+        || Math.min(a.cardPrice ?? Infinity, a.paymentPrice ?? Infinity, a.totalCashPrice ?? Infinity, a.effectivePrice ?? Infinity)
+          - Math.min(b.cardPrice ?? Infinity, b.paymentPrice ?? Infinity, b.totalCashPrice ?? Infinity, b.effectivePrice ?? Infinity)
         || b.identityScore - a.identityScore);
     const marketCounts = new Map<string, number>();
     const offers = deduplicatedOffers.filter((offer) => {

@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Korea Web Agent
-  version: 0.5.1
-  description: Read-only multi-market Korean buying research with authenticated local-browser offer verification and category-aware Best 3 recommendations.
+  version: 0.6.0
+  description: Cloud-first read-only Korean shopping research with resilient multi-market evidence, price history, payment conditions, and optional authenticated PC-browser enrichment.
 servers:
   - url: https://korea-web-agent.netlify.app
 security:
@@ -12,7 +12,7 @@ paths:
     post:
       operationId: startProductResearch
       summary: Research a concrete product and decide whether current evidence supports buying, waiting, skipping, or more research.
-      description: Research exactly one product or recommendation category per call. Split compound requests. Pass stated cards/memberships. Preserve resolved SKU details from conversation context.
+      description: Queue one exact-product or recommendation-category job. Split compound requests. Preserve resolved brand, model, and variant from conversation context. Poll jobId while status is queued or running.
       requestBody:
         required: true
         content:
@@ -35,18 +35,12 @@ paths:
                 purchaseContext:
                   $ref: '#/components/schemas/PurchaseContext'
       responses:
-        '200':
-          description: Research completed without a pending authenticated-browser job.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AgentResearchResult'
         '202':
-          description: Public research completed and an authenticated PC browser result is pending. Poll pollUrl or getProductResearchResult using jobId.
+          description: Cloud research job queued. Poll pollUrl or getProductResearchResult using jobId while status is queued or running.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AgentResearchResult'
+                $ref: '#/components/schemas/AgentResearchJobState'
         '400':
           $ref: '#/components/responses/Error'
         '401':
@@ -57,7 +51,7 @@ paths:
     get:
       operationId: getProductResearchResult
       summary: Get the latest result for a product research job.
-      description: Call after startProductResearch returns status=running. Pass the returned jobId unchanged and continue only while status is running.
+      description: Poll after startProductResearch. Pass jobId unchanged and continue while status is queued or running; stop on completed, partial, or failed.
       parameters:
         - name: jobId
           in: query
@@ -72,7 +66,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AgentResearchResult'
+                oneOf:
+                  - $ref: '#/components/schemas/AgentResearchJobState'
+                  - $ref: '#/components/schemas/AgentResearchResult'
         '401':
           $ref: '#/components/responses/Error'
         '404':
@@ -144,7 +140,12 @@ components:
           type: array
           maxItems: 20
           items: { type: string, maxLength: 200 }
-          description: Cards the user actually owns. Never infer ownership from a displayed promotion.
+          description: Optional request-scoped card names only; never send card numbers.
+        paymentMethods:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 200 }
+          description: Optional request-scoped payment method names such as 토스페이, 카카오페이, or 네이버페이; never send account/card numbers.
         memberships:
           type: array
           maxItems: 20
@@ -178,6 +179,8 @@ components:
         membershipPrice: { type: number }
         cardPrice: { type: number }
         cardName: { type: string }
+        paymentPrice: { type: number }
+        paymentMethod: { type: string }
         points: { type: number }
         shippingFee: { type: number }
         installationFee: { type: number }
@@ -191,7 +194,7 @@ components:
       type: object
       required: [basis, rank, amount, offer, reasons]
       properties:
-        basis: { type: string, enum: [cash, owned_card, effective, alternative_condition] }
+        basis: { type: string, enum: [cash, owned_card, conditional_payment, effective, alternative_condition] }
         rank: { type: integer, minimum: 1 }
         amount: { type: number }
         offer: { $ref: '#/components/schemas/MarketOffer' }
@@ -201,6 +204,7 @@ components:
       properties:
         cash: { $ref: '#/components/schemas/RankedOffer' }
         ownedCard: { $ref: '#/components/schemas/RankedOffer' }
+        conditionalPayment: { $ref: '#/components/schemas/RankedOffer' }
         effective: { $ref: '#/components/schemas/RankedOffer' }
         alternativeCondition: { $ref: '#/components/schemas/RankedOffer' }
     MarketCoverage:
@@ -320,6 +324,81 @@ components:
         succeeded: { type: integer, minimum: 0 }
         failed: { type: integer, minimum: 0 }
         evidenceCount: { type: integer, minimum: 0 }
+    AgentResearchJobState:
+      type: object
+      required: [jobId, status, createdAt, updatedAt, pollUrl]
+      properties:
+        jobId: { type: string }
+        status: { type: string, enum: [queued, running, completed, partial, failed] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        pollUrl: { type: string }
+        error: { type: string }
+    PriceHistoryObservation:
+      type: object
+      required: [observedAt, cashPrice]
+      properties:
+        observedAt: { type: string, format: date-time }
+        cashPrice: { type: number }
+        sourceUrl: { type: string, format: uri }
+        market: { type: string }
+    PriceHistoryReport:
+      type: object
+      required: [sku, observations, comparison, position]
+      properties:
+        sku: { type: string }
+        observations:
+          type: array
+          items: { $ref: '#/components/schemas/PriceHistoryObservation' }
+        comparison:
+          type: object
+          required: [direction]
+          properties:
+            direction: { type: string, enum: [up, down, unchanged, insufficient] }
+            previousPrice: { type: number }
+            currentPrice: { type: number }
+            absoluteChange: { type: number }
+            percentageChange: { type: number }
+        position:
+          type: object
+          required: [label, current, sampleCount]
+          properties:
+            label: { type: string, enum: [six_month_low, below_average, near_average, above_average, six_month_high, insufficient] }
+            current: { type: number }
+            minimum: { type: number }
+            maximum: { type: number }
+            average: { type: number }
+            sampleCount: { type: integer, minimum: 0 }
+    MembershipScenario:
+      type: object
+      required: [paymentPrice, expectedPoints, membershipFee, effectivePrice]
+      properties:
+        paymentPrice: { type: number }
+        expectedPoints: { type: number }
+        membershipFee: { type: number }
+        effectivePrice: { type: number }
+    MembershipScenarios:
+      type: object
+      required: [withoutMembership, withMembership]
+      properties:
+        membershipName: { type: string }
+        withoutMembership: { $ref: '#/components/schemas/MembershipScenario' }
+        withMembership: { $ref: '#/components/schemas/MembershipScenario' }
+    EventWindow:
+      type: object
+      required: [status]
+      properties:
+        startsOn: { type: string, format: date }
+        endsOn: { type: string, format: date }
+        status: { type: string, enum: [upcoming, active, expired, unknown] }
+    StandardPriceRow:
+      type: object
+      required: [key, label]
+      properties:
+        key: { type: string, enum: [cash, card, effective_without_membership, effective_with_membership] }
+        label: { type: string }
+        amount: { type: number }
+        condition: { type: string }
     AgentResearchResult:
       type: object
       required:
@@ -369,6 +448,15 @@ components:
         manualChecks:
           type: array
           items: { $ref: '#/components/schemas/ManualCheck' }
+        priceHistory:
+          $ref: '#/components/schemas/PriceHistoryReport'
+        membershipScenarios:
+          $ref: '#/components/schemas/MembershipScenarios'
+        eventWindow:
+          $ref: '#/components/schemas/EventWindow'
+        standardPriceRows:
+          type: array
+          items: { $ref: '#/components/schemas/StandardPriceRow' }
         relay:
           $ref: '#/components/schemas/RelaySummary'
         summary: { type: string }
