@@ -189,3 +189,15 @@ export function redactSensitiveLogValue(value: unknown, seen = new WeakSet<objec
     SENSITIVE_KEYS.test(key) ? '[REDACTED]' : redactSensitiveLogValue(nested, seen),
   ]));
 }
+
+
+export function redactSensitiveText(value: string, explicitSecrets: string[] = []): string {
+  let output = value;
+  for (const secret of explicitSecrets.filter((item) => item.length >= 8)) {
+    output = output.split(secret).join('[REDACTED]');
+  }
+  return output
+    .replace(/Bearer\s+[^\s"'<>]+/gi, 'Bearer [REDACTED]')
+    .replace(/(?:\d[ -]?){12,19}/g, '[REDACTED_NUMBER]')
+    .slice(0, 1_000);
+}
