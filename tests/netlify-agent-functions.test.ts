@@ -12,6 +12,7 @@ test('agent input validator accepts query-only requests and rejects private/loca
 
 test('Netlify publishes start and direct query-based status functions for ChatGPT Action polling', () => {
   assert.equal(existsSync('netlify/functions/agent-research.mjs'), true);
+  assert.equal(existsSync('netlify/functions/agent-research-background.mjs'), true);
   assert.equal(existsSync('netlify/functions/agent-job.mjs'), true);
   const config = readFileSync('netlify.toml', 'utf8');
   assert.match(config, /from\s*=\s*"\/api\/agent\/research"/);
@@ -24,11 +25,15 @@ test('agent job function accepts jobId query and keeps legacy id fallback', () =
   assert.match(status, /searchParams\.get\(['"]id['"]\)/);
 });
 
-test('agent functions use the compact agent service instead of returning raw relay secrets', () => {
+test('agent functions separate queue dispatch, background research, and compact polling without returning raw relay secrets', () => {
   const start = readFileSync('netlify/functions/agent-research.mjs', 'utf8');
+  const worker = readFileSync('netlify/functions/agent-research-background.mjs', 'utf8');
   const status = readFileSync('netlify/functions/agent-job.mjs', 'utf8');
-  assert.match(start, /runAgentResearch/);
+  assert.match(start, /createQueuedAgentResearch/);
+  assert.doesNotMatch(start, /runAgentResearch/);
+  assert.match(worker, /runAgentResearch/);
   assert.match(status, /shapeAgentResearchJob/);
-  assert.equal(start.includes('KWA_RELAY_SECRET') && start.includes('return json(process.env.KWA_RELAY_SECRET'), false);
+  assert.equal(start.includes('return json(Netlify.env.get(\'KWA_RELAY_SECRET\')'), false);
+  assert.equal(worker.includes('return json(Netlify.env.get(\'KWA_RELAY_SECRET\')'), false);
   assert.equal(status.includes('KWA_RELAY_SECRET'), false);
 });
