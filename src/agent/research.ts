@@ -89,6 +89,7 @@ export interface AgentResearchResult {
   missingInformation: string[];
   evidence: AgentEvidenceSummary[];
   sourceCoverage: AgentSourceCoverage;
+  purchaseContextApplied?: PurchaseContext;
   errors: string[];
 }
 
@@ -209,6 +210,7 @@ export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {
   if (report?.marketCoverage) result.marketCoverage = report.marketCoverage;
   if (report?.recommendations) result.recommendations = report.recommendations;
   if (report?.manualChecks) result.manualChecks = report.manualChecks;
+  if (job.request.purchaseContext) result.purchaseContextApplied = job.request.purchaseContext;
   return result;
 }
 
@@ -251,11 +253,21 @@ function relayEligible(url: string | undefined): boolean {
   }
 }
 
-function relayDiscoveryQuery(target: NormalizedTarget): string {
+function relayDiscoveryQueries(target: NormalizedTarget): string[] {
   const identity = [...new Set([target.brand, target.model, target.variant, target.name].filter((value): value is string => Boolean(value?.trim())))]
     .join(' ')
     .trim();
-  return identity ? `${identity} 가격 카드 쿠폰 (site:naver.com OR site:coupang.com OR site:kream.co.kr OR site:danawa.com OR site:enuri.com OR site:11st.co.kr OR site:gmarket.co.kr OR site:auction.co.kr)` : '';
+  if (!identity) return [];
+  return [
+    'site:naver.com',
+    'site:coupang.com',
+    'site:kream.co.kr',
+    'site:danawa.com',
+    'site:enuri.com',
+    'site:11st.co.kr',
+    'site:gmarket.co.kr',
+    'site:auction.co.kr',
+  ].map((site) => `${identity} 가격 카드 쿠폰 ${site}`);
 }
 
 function marketName(url: string): string {
@@ -272,23 +284,26 @@ function marketName(url: string): string {
 }
 
 async function discoverRelayEligibleUrls(target: NormalizedTarget, deps: AgentResearchDependencies): Promise<string[]> {
-  const query = relayDiscoveryQuery(target);
-  if (!query) return [];
-  try {
-    const hits = await deps.publicSearch(query);
-    const urls: string[] = [];
-    for (const hit of hits.slice(0, 20)) {
+  const queries = relayDiscoveryQueries(target);
+  if (!queries.length) return [];
+  const outcomes = await Promise.all(queries.map(async (query) => {
+    try {
+      return await deps.publicSearch(query);
+    } catch {
+      return [];
+    }
+  }));
+  const urls: string[] = [];
+  for (const hits of outcomes) {
+    for (const hit of hits.slice(0, 8)) {
       if (!relayEligible(hit.url)) continue;
       if (!['exact_product', 'probable_product'].includes(matchEvidenceToProduct(target, hit).level)) continue;
       const url = assertPublicUrl(hit.url).toString();
       if (!urls.includes(url)) urls.push(url);
-      if (urls.length >= 8) break;
+      if (urls.length >= 8) return urls;
     }
-    return urls;
-  } catch {
-    // Public research should remain usable if a relay-specific discovery query fails.
   }
-  return [];
+  return urls;
 }
 
 export async function runAgentResearch(

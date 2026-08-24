@@ -113,6 +113,49 @@ test('purchase evaluation finds a relay-eligible seller when the resolved canoni
   assert.equal(result.relay.requested, true);
 });
 
+test('relay discovery searches markets independently when a combined search would miss the exact seller page', async () => {
+  const observed: Array<{ request: ResearchRequest; context: ResearchContext }> = [];
+  const searchQueries: string[] = [];
+
+  const result = await runAgentResearch({
+    query: '와이드뷰 QWGE43UT1 + EKWBYME78W(V3) 43인치 동일 패키지 최저가 카드 쿠폰 적립까지 조사해줘',
+    purchaseContext: {
+      ownedCards: ['삼성 iD SELECT ALL', '신한 ANNIVERSE'],
+      memberships: ['네이버플러스', '쿠팡 와우'],
+    },
+  }, {
+    publicSearch: async (query) => {
+      searchQueries.push(query);
+      if (searchQueries.length === 1) {
+        return [{
+          title: '와이드뷰 QWGE43UT1 EKWBYME78W V3 43인치 이동형 패키지',
+          url: 'https://example.com/catalog/widevu-v3',
+          snippet: 'QWGE43UT1 EKWBYME78W V3 43인치 UHD 4K',
+        }];
+      }
+      if (query.includes('site:kream.co.kr') && !query.includes(' OR ')) {
+        return [{
+          title: '와이드뷰 QWGE43UT1 EKWBYME78W V3 43인치 이동형 패키지',
+          url: 'https://kream.co.kr/products/703400',
+          snippet: 'QWGE43UT1 EKWBYME78W V3 43인치 UHD 4K',
+        }];
+      }
+      return [];
+    },
+    cloudResearch: async (request, context) => {
+      observed.push({ request, context });
+      return fakeJob(request, context);
+    },
+  });
+
+  assert.equal(observed.length, 1);
+  assert.equal(observed[0]?.request.includeLocalRelay, true);
+  assert.equal(observed[0]?.request.url, 'https://kream.co.kr/products/703400');
+  assert.ok(observed[0]?.request.relayCandidates?.some((candidate) => candidate.market === 'KREAM'));
+  assert.deepEqual(observed[0]?.request.purchaseContext?.ownedCards, ['삼성 iD SELECT ALL', '신한 ANNIVERSE']);
+  assert.equal(result.relay.requested, true);
+});
+
 test('spec-only product question resolves product but does not request PC relay', async () => {
   const observed: Array<{ request: ResearchRequest; context: ResearchContext }> = [];
   const result = await runAgentResearch({ query: '와이드뷰 V3 43인치 패널 스펙 알려줘' }, dependencies(observed));
@@ -164,6 +207,27 @@ test('shapeAgentResearchJob exposes a compact source-attributed result without s
   assert.equal(shaped.product.identityConfidence, 0.93);
   assert.equal(shaped.decision, 'INSUFFICIENT');
   assert.ok('sourceCoverage' in shaped);
+});
+
+test('shapeAgentResearchJob reports the purchase context that was actually applied', () => {
+  const context: ResearchContext = {
+    resolvedTarget: { kind: 'product', brand: '와이드뷰', model: 'QWGE43UT1', variant: '43인치 V3' },
+    identityConfidence: 0.95,
+  };
+  const job = fakeJob({
+    question: '와이드뷰 최저가',
+    category: 'product',
+    includeLocalRelay: true,
+    purchaseContext: {
+      ownedCards: ['삼성 iD SELECT ALL', '신한 ANNIVERSE'],
+      memberships: ['네이버플러스', '쿠팡 와우'],
+      region: '대한민국 서울·하남 생활권',
+    },
+  }, context);
+
+  const shaped = shapeAgentResearchJob(job);
+
+  assert.deepEqual(shaped.purchaseContextApplied, job.request.purchaseContext);
 });
 
 test('category recommendation keeps multiple candidates and purchase context instead of failing as ambiguous', async () => {

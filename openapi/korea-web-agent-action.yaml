@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Korea Web Agent
-  version: 0.5.0
+  version: 0.5.1
   description: Read-only multi-market Korean buying research with authenticated local-browser offer verification and category-aware Best 3 recommendations.
 servers:
   - url: https://korea-web-agent.netlify.app
@@ -12,7 +12,7 @@ paths:
     post:
       operationId: startProductResearch
       summary: Research a concrete product and decide whether current evidence supports buying, waiting, skipping, or more research.
-      description: Use for product research, prices, purchase decisions, reviews, or comparisons. The backend decides whether PC pricing is useful. On follow-ups, preserve previously resolved SKU details from conversation context.
+      description: Research exactly one product or recommendation category per call. Split compound requests. Pass stated cards/memberships. Preserve resolved SKU details from conversation context.
       requestBody:
         required: true
         content:
@@ -26,7 +26,7 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 2000
-                  description: Natural-language product question. Use conversation context to expand references such as "this" or "이거" and include the full known brand/model/variant/bundle or accessory identity when previously resolved; do not drop known SKU-defining details unless the user explicitly changes them.
+                  description: One product or recommendation category only. Include full brand/model/variant/bundle identity. Split multi-product requests into separate Action calls.
                 url:
                   type: string
                   format: uri
@@ -390,6 +390,8 @@ components:
             $ref: '#/components/schemas/EvidenceSummary'
         sourceCoverage:
           $ref: '#/components/schemas/SourceCoverage'
+        purchaseContextApplied:
+          $ref: '#/components/schemas/PurchaseContext'
         errors:
           type: array
           items: { type: string }

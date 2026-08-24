@@ -51,7 +51,7 @@ test('GET /api/health returns service health', async () => {
   await withServer(async (base) => {
     const response = await fetch(`${base}/api/health`);
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { ok: true, service: 'korea-web-agent', version: '0.5.0' });
+    assert.deepEqual(await response.json(), { ok: true, service: 'korea-web-agent', version: '0.5.1' });
   });
 });
 
