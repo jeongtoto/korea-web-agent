@@ -1,4 +1,5 @@
 import type { SearchHit } from './index.ts';
+import { withRetry } from '../core/retry-policy.ts';
 
 function decodeEntities(input: string): string {
   const named: Record<string, string> = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ' };
@@ -61,12 +62,14 @@ export async function searchDuckDuckGo(query: string, fetchImpl: typeof fetch = 
   const q = query.trim();
   if (!q) return [];
   const endpoint = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`;
-  const response = await fetchImpl(endpoint, {
-    headers: {
-      'user-agent': 'KoreaWebAgent/0.1 (+public research; read-only)',
-      accept: 'text/html',
-    },
+  return withRetry(async () => {
+    const response = await fetchImpl(endpoint, {
+      headers: {
+        'user-agent': 'KoreaWebAgent/0.6 (+public research; read-only)',
+        accept: 'text/html',
+      },
+    });
+    if (!response.ok) throw new Error(`Search failed with HTTP ${response.status}`);
+    return parseDuckDuckGoHtml(await response.text());
   });
-  if (!response.ok) throw new Error(`Search failed with HTTP ${response.status}`);
-  return parseDuckDuckGoHtml(await response.text());
 }
