@@ -12,12 +12,18 @@ function snapshotCash(report: ProductReport): number | undefined {
 
 function conditionalPrice(report: ProductReport): { amount?: number; condition?: string } {
   const owned = report.bestOffers?.ownedCard;
-  if (owned) return { amount: owned.amount, condition: owned.offer.cardName };
-  const conditional = report.bestOffers?.conditionalPayment;
-  if (conditional) return {
-    amount: conditional.amount,
-    condition: conditional.offer.paymentMethod ?? conditional.offer.cardName,
+  if (owned) return {
+    amount: owned.amount,
+    ...(owned.offer.cardName ? { condition: owned.offer.cardName } : {}),
   };
+  const conditional = report.bestOffers?.conditionalPayment;
+  if (conditional) {
+    const condition = conditional.offer.paymentMethod ?? conditional.offer.cardName;
+    return {
+      amount: conditional.amount,
+      ...(condition ? { condition } : {}),
+    };
+  }
   return {};
 }
 
@@ -41,13 +47,15 @@ export function enrichShoppingReport(report: ProductReport, observedAt: string):
     });
   }
 
+  const withoutMembershipEffective = report.membershipScenarios?.withoutMembership.effectivePrice
+    ?? report.bestOffers?.effective?.amount;
+  const withMembershipEffective = report.membershipScenarios?.withMembership.effectivePrice;
   report.standardPriceRows = buildStandardPriceRows({
-    cash,
-    card: conditional.amount,
-    cardCondition: conditional.condition,
-    withoutMembershipEffective: report.membershipScenarios?.withoutMembership.effectivePrice
-      ?? report.bestOffers?.effective?.amount,
-    withMembershipEffective: report.membershipScenarios?.withMembership.effectivePrice,
+    ...(cash !== undefined ? { cash } : {}),
+    ...(conditional.amount !== undefined ? { card: conditional.amount } : {}),
+    ...(conditional.condition ? { cardCondition: conditional.condition } : {}),
+    ...(withoutMembershipEffective !== undefined ? { withoutMembershipEffective } : {}),
+    ...(withMembershipEffective !== undefined ? { withMembershipEffective } : {}),
   });
 
   return report;
