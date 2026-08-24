@@ -33,30 +33,46 @@ export function enrichShoppingReport(report: ProductReport, observedAt: string):
   const conditional = conditionalPrice(report);
 
   if (snapshot && cash !== undefined && (snapshot.basePoints !== undefined || snapshot.membershipPoints !== undefined)) {
-    report.membershipScenarios = buildMembershipScenarios({
+    const scenarios = buildMembershipScenarios({
       cashPaymentPrice: cash,
       ...(snapshot.basePoints !== undefined ? { basePoints: snapshot.basePoints } : {}),
       ...(snapshot.membershipPoints !== undefined ? { membershipPoints: snapshot.membershipPoints } : {}),
     });
+    report.membershipScenarios = {
+      ...(scenarios.membershipName ? { membershipName: scenarios.membershipName } : {}),
+      withoutMembership: { ...scenarios.withoutMembership },
+      withMembership: { ...scenarios.withMembership },
+    };
   }
 
   if (snapshot?.liveEndAt) {
-    report.eventWindow = normalizeEventWindow({
+    const eventWindow = normalizeEventWindow({
       endsAt: snapshot.liveEndAt,
       observedAt,
     });
+    report.eventWindow = {
+      ...(eventWindow.startsOn ? { startsOn: eventWindow.startsOn } : {}),
+      ...(eventWindow.endsOn ? { endsOn: eventWindow.endsOn } : {}),
+      status: eventWindow.status,
+    };
   }
 
   const withoutMembershipEffective = report.membershipScenarios?.withoutMembership.effectivePrice
     ?? report.bestOffers?.effective?.amount;
   const withMembershipEffective = report.membershipScenarios?.withMembership.effectivePrice;
-  report.standardPriceRows = buildStandardPriceRows({
+  const rows = buildStandardPriceRows({
     ...(cash !== undefined ? { cash } : {}),
     ...(conditional.amount !== undefined ? { card: conditional.amount } : {}),
     ...(conditional.condition ? { cardCondition: conditional.condition } : {}),
     ...(withoutMembershipEffective !== undefined ? { withoutMembershipEffective } : {}),
     ...(withMembershipEffective !== undefined ? { withMembershipEffective } : {}),
   });
+  report.standardPriceRows = rows.map((row) => ({
+    key: row.key,
+    label: row.label,
+    ...(row.amount !== undefined ? { amount: row.amount } : {}),
+    ...(row.condition ? { condition: row.condition } : {}),
+  }));
 
   return report;
 }
