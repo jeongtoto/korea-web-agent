@@ -12,7 +12,7 @@ paths:
     post:
       operationId: startProductResearch
       summary: Research a concrete product and decide whether current evidence supports buying, waiting, skipping, or more research.
-      description: Queue one exact-product or recommendation-category research job. Split compound requests. Preserve resolved SKU details. Poll the returned jobId while status is queued or running.
+      description: Queue one exact-product or recommendation-category job. Split compound requests. Preserve resolved brand, model, and variant from conversation context. Poll jobId while status is queued or running.
       requestBody:
         required: true
         content:
