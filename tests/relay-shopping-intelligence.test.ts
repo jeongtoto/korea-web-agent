@@ -32,7 +32,7 @@ function publicJob(): ResearchJob {
     report: {
       decision: 'BUY', confidence: 0.8,
       confidenceDimensions: { identity: 0.9, price: 0.8, officialSpecs: 0.5, reviews: 0.5, negativeSignals: 0.5, personalizedPrice: 0 },
-      title: 'QWGE43UT1 이동형 패키지', summary: 'public', reasons: [], strengths: [], weaknesses: [], missingInformation: [], evidence: [], sourceCount: 1,
+      title: 'QWGE43UT1 + EKWBYME78W(V3) 이동형 패키지', summary: 'public', reasons: [], strengths: [], weaknesses: [], missingInformation: [], evidence: [], sourceCount: 1,
       price: { currency: 'KRW', cashPaymentPrice: 389000, sourceUrl: URL },
       priceHistory: {
         sku: 'QWGE43UT1+EKWBYME78W(V3)',
@@ -55,7 +55,7 @@ test('personalized relay preserves public six-month history while recalculating 
   const relay = await queuePersistentRelay(store, job.id, URL, SECRET, Date.parse('2026-08-24T09:00:00.000Z'), 30_000);
 
   const merged = await completePersistentRelay(store, relay.id, {
-    title: 'QWGE43UT1 이동형 패키지',
+    title: 'QWGE43UT1 + EKWBYME78W(V3) 이동형 패키지',
     cashPaymentPrice: 369000,
     basePoints: 5000,
     membershipPoints: 12000,
