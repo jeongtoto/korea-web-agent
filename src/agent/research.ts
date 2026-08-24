@@ -107,14 +107,16 @@ export function validateAgentResearchInput(value: unknown): AgentResearchInput {
   if (object.purchaseContext !== undefined) {
     if (!object.purchaseContext || typeof object.purchaseContext !== 'object' || Array.isArray(object.purchaseContext)) throw new Error('purchaseContext is invalid');
     const raw = object.purchaseContext as Record<string, unknown>;
-    const allowed = new Set(['ownedCards', 'memberships', 'budget', 'region', 'preferences']);
+    const allowed = new Set(['ownedCards', 'paymentMethods', 'memberships', 'budget', 'region', 'preferences']);
     if (Object.keys(raw).some((key) => !allowed.has(key))) throw new Error('purchaseContext contains unsupported fields');
     const context: PurchaseContext = {};
-    for (const key of ['ownedCards', 'memberships', 'preferences'] as const) {
+    for (const key of ['ownedCards', 'paymentMethods', 'memberships', 'preferences'] as const) {
       const value = raw[key];
       if (value === undefined) continue;
       if (!Array.isArray(value) || value.length > 20 || value.some((item) => typeof item !== 'string' || !item.trim() || item.length > 200)) throw new Error(`purchaseContext.${key} is invalid`);
-      if (key === 'ownedCards' && value.some((item) => /(?:\d[ -]?){12,19}/.test(item as string))) throw new Error('purchaseContext.ownedCards accepts card names only, never card numbers');
+      if ((key === 'ownedCards' || key === 'paymentMethods') && value.some((item) => /(?:\d[ -]?){12,19}/.test(item as string))) {
+        throw new Error(`purchaseContext.${key} accepts names only, never card or account numbers`);
+      }
       context[key] = value.map((item) => (item as string).trim());
     }
     if (raw.budget !== undefined) {
@@ -201,7 +203,7 @@ export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {
     sourceCoverage: sourceCoverage(job),
     errors: [...job.errors],
   };
-  if (job.status === 'running') result.pollUrl = `/api/agent/job?jobId=${encodeURIComponent(job.id)}`;
+  if (job.status === 'running' || job.status === 'queued') result.pollUrl = `/api/agent/job?jobId=${encodeURIComponent(job.id)}`;
   if (report?.confidenceDimensions) result.confidenceDimensions = report.confidenceDimensions;
   if (report?.price) result.price = report.price;
   if (report?.personalizedPrice) result.personalizedPrice = report.personalizedPrice;
@@ -267,7 +269,7 @@ function relayDiscoveryQueries(target: NormalizedTarget): string[] {
     'site:11st.co.kr',
     'site:gmarket.co.kr',
     'site:auction.co.kr',
-  ].map((site) => `${identity} 가격 카드 쿠폰 ${site}`);
+  ].map((site) => `${identity} 가격 카드 쿠폰 토스페이 카카오페이 네이버페이 ${site}`);
 }
 
 function marketName(url: string): string {
