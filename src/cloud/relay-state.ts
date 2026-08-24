@@ -21,9 +21,11 @@ interface PendingRelayRecord {
   job: SignedRelayJob;
   claimedAt?: number;
 }
+interface RelayQueueIndex { ids: string[] }
 
 const LAST_SEEN_KEY = 'relay:last-seen';
-const PENDING_KEY = 'relay:pending';
+const QUEUE_INDEX_KEY = 'relay:queue:index';
+const PENDING_PREFIX = 'relay:pending:';
 const JOB_PREFIX = 'research:job:';
 const DEFAULT_ONLINE_TTL_MS = 15_000;
 const DEFAULT_CLAIM_TTL_MS = 30_000;
@@ -31,6 +33,30 @@ const DEFAULT_RELAY_TIMEOUT_MS = 30_000;
 
 function researchJobKey(id: string): string {
   return `${JOB_PREFIX}${id}`;
+}
+
+function pendingKey(relayJobId: string): string {
+  return `${PENDING_PREFIX}${relayJobId}`;
+}
+
+async function getQueueIds(store: JsonKeyValueStore): Promise<string[]> {
+  const index = await store.getJSON<RelayQueueIndex>(QUEUE_INDEX_KEY);
+  return Array.isArray(index?.ids) ? [...new Set(index.ids.filter((id) => typeof id === 'string' && id.length > 0))] : [];
+}
+
+async function setQueueIds(store: JsonKeyValueStore, ids: string[]): Promise<void> {
+  const unique = [...new Set(ids)];
+  if (!unique.length) {
+    await store.delete(QUEUE_INDEX_KEY);
+    return;
+  }
+  await store.setJSON(QUEUE_INDEX_KEY, { ids: unique } satisfies RelayQueueIndex);
+}
+
+async function removeQueueItem(store: JsonKeyValueStore, relayJobId: string): Promise<void> {
+  await store.delete(pendingKey(relayJobId));
+  const ids = await getQueueIds(store);
+  await setQueueIds(store, ids.filter((id) => id !== relayJobId));
 }
 
 export async function saveResearchJob(store: JsonKeyValueStore, job: ResearchJob): Promise<void> {
@@ -73,10 +99,6 @@ export async function queuePersistentRelay(
   targetHint?: RelayProductHint,
   targets?: RelayTarget[],
 ): Promise<SignedRelayJob> {
-  const existing = await store.getJSON<PendingRelayRecord>(PENDING_KEY);
-  if (existing && !isExpired(existing.job, nowMs)) throw new Error('Persistent relay is busy with another active job');
-  if (existing) await store.delete(PENDING_KEY);
-
   const unsigned: UnsignedRelayJob = {
     id: crypto.randomUUID(),
     url,
@@ -89,7 +111,9 @@ export async function queuePersistentRelay(
   };
   const signature = await signRelayJob(unsigned, secret);
   const job: SignedRelayJob = { ...unsigned, signature };
-  await store.setJSON(PENDING_KEY, { researchJobId, job } satisfies PendingRelayRecord);
+  await store.setJSON(pendingKey(job.id), { researchJobId, job } satisfies PendingRelayRecord);
+  const ids = await getQueueIds(store);
+  await setQueueIds(store, [...ids, job.id]);
   return job;
 }
 
@@ -99,16 +123,30 @@ export async function pollPersistentRelay(
   claimTtlMs = DEFAULT_CLAIM_TTL_MS,
 ): Promise<SignedRelayJob | null> {
   await markPersistentConnectorSeen(store, nowMs);
-  const pending = await store.getJSON<PendingRelayRecord>(PENDING_KEY);
-  if (!pending) return null;
-  if (isExpired(pending.job, nowMs)) {
-    await store.delete(PENDING_KEY);
-    return null;
+  const ids = await getQueueIds(store);
+  if (!ids.length) return null;
+
+  const retained: string[] = [];
+  for (let index = 0; index < ids.length; index += 1) {
+    const id = ids[index]!;
+    const pending = await store.getJSON<PendingRelayRecord>(pendingKey(id));
+    if (!pending) continue;
+    if (isExpired(pending.job, nowMs)) {
+      await store.delete(pendingKey(id));
+      continue;
+    }
+
+    retained.push(id, ...ids.slice(index + 1));
+    await setQueueIds(store, retained);
+    if (typeof pending.claimedAt === 'number' && nowMs - pending.claimedAt < claimTtlMs) return null;
+
+    const claimed: PendingRelayRecord = { ...pending, claimedAt: nowMs };
+    await store.setJSON(pendingKey(id), claimed);
+    return pending.job;
   }
-  if (typeof pending.claimedAt === 'number' && nowMs - pending.claimedAt < claimTtlMs) return null;
-  const claimed: PendingRelayRecord = { ...pending, claimedAt: nowMs };
-  await store.setJSON(PENDING_KEY, claimed);
-  return pending.job;
+
+  await setQueueIds(store, retained);
+  return null;
 }
 
 export async function completePersistentRelay(
@@ -117,13 +155,13 @@ export async function completePersistentRelay(
   rawResult: unknown,
   completedAt = new Date().toISOString(),
 ): Promise<ResearchJob> {
-  const pending = await store.getJSON<PendingRelayRecord>(PENDING_KEY);
+  const pending = await store.getJSON<PendingRelayRecord>(pendingKey(relayJobId));
   if (!pending || pending.job.id !== relayJobId) throw new Error('Pending relay job not found');
   const researchJob = await getStoredResearchJob(store, pending.researchJobId);
   if (!researchJob) throw new Error('Stored research job not found');
   const merged = applyPersonalizedRelayResult(researchJob, rawResult, completedAt);
   await saveResearchJob(store, merged);
-  await store.delete(PENDING_KEY);
+  await removeQueueItem(store, relayJobId);
   return merged;
 }
 
@@ -133,7 +171,7 @@ export async function failPersistentRelay(
   message: string,
   completedAt = new Date().toISOString(),
 ): Promise<ResearchJob> {
-  const pending = await store.getJSON<PendingRelayRecord>(PENDING_KEY);
+  const pending = await store.getJSON<PendingRelayRecord>(pendingKey(relayJobId));
   if (!pending || pending.job.id !== relayJobId) throw new Error('Pending relay job not found');
   const researchJob = await getStoredResearchJob(store, pending.researchJobId);
   if (!researchJob) throw new Error('Stored research job not found');
@@ -161,6 +199,6 @@ export async function failPersistentRelay(
     ];
   }
   await saveResearchJob(store, failed);
-  await store.delete(PENDING_KEY);
+  await removeQueueItem(store, relayJobId);
   return failed;
 }
