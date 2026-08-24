@@ -2,6 +2,8 @@ import type { RelayCandidate, ResearchJob, ResearchRequest } from '../core/types
 import { toRelayProductHint } from '../relay/protocol.ts';
 import type { RelayTarget } from '../relay/protocol.ts';
 import { assertPublicUrl, isRelayDomainAllowed } from '../core/policy.ts';
+import { enrichShoppingReport } from '../report/shopping-intelligence-report.ts';
+import { appendPriceObservation } from './price-history.ts';
 import {
   getPersistentRelayStatus,
   queuePersistentRelay,
@@ -16,6 +18,32 @@ export interface CloudResearchOptions {
   publicResearch: (request: ResearchRequest) => Promise<ResearchJob>;
 }
 
+async function attachPublicShoppingIntelligence(
+  job: ResearchJob,
+  store: JsonKeyValueStore,
+  nowMs: number,
+): Promise<ResearchJob> {
+  if (!job.report) return job;
+  enrichShoppingReport(job.report, job.updatedAt);
+
+  const cashWinner = job.report.bestOffers?.cash;
+  const fallbackCash = job.report.price?.cashPaymentPrice;
+  const cashPrice = cashWinner?.amount ?? fallbackCash;
+  if (cashPrice !== undefined && Number.isFinite(cashPrice) && cashPrice > 0) {
+    const observedAt = cashWinner?.offer.retrievedAt ?? job.updatedAt;
+    const sourceUrl = cashWinner?.offer.url ?? job.report.price?.sourceUrl;
+    const market = cashWinner?.offer.market;
+    const history = await appendPriceObservation(store, job.target, {
+      observedAt,
+      cashPrice,
+      ...(sourceUrl ? { sourceUrl } : {}),
+      ...(market ? { market } : {}),
+    }, nowMs);
+    if (history) job.report.priceHistory = history;
+  }
+  return job;
+}
+
 export async function runCloudResearch(request: ResearchRequest, options: CloudResearchOptions): Promise<ResearchJob> {
   const nowMs = options.nowMs ?? (() => Date.now());
   const publicRequest: ResearchRequest = { ...request, includeLocalRelay: false };
@@ -24,6 +52,7 @@ export async function runCloudResearch(request: ResearchRequest, options: CloudR
     ...publicJob,
     request: { ...request },
   };
+  job = await attachPublicShoppingIntelligence(job, options.store, nowMs());
 
   const wantsRelay = Boolean(request.includeLocalRelay && request.url && options.relaySecret);
   if (!wantsRelay) {
@@ -80,8 +109,8 @@ export async function runCloudResearch(request: ResearchRequest, options: CloudR
       .filter((offer) => {
         try { return offer.eligible && isRelayDomainAllowed(assertPublicUrl(offer.url).hostname); } catch { return false; }
       })
-      .sort((a, b) => Math.min(a.cardPrice ?? Infinity, a.totalCashPrice ?? Infinity, a.effectivePrice ?? Infinity)
-        - Math.min(b.cardPrice ?? Infinity, b.totalCashPrice ?? Infinity, b.effectivePrice ?? Infinity))
+      .sort((a, b) => Math.min(a.cardPrice ?? Infinity, a.paymentPrice ?? Infinity, a.totalCashPrice ?? Infinity, a.effectivePrice ?? Infinity)
+        - Math.min(b.cardPrice ?? Infinity, b.paymentPrice ?? Infinity, b.totalCashPrice ?? Infinity, b.effectivePrice ?? Infinity))
       .map((offer) => ({ url: offer.url, market: offer.market }));
     const uniqueCandidates: RelayCandidate[] = [...(request.relayCandidates ?? []), ...discovered]
       .filter((candidate, index, values) => values.findIndex((value) => value.url === candidate.url) === index)
