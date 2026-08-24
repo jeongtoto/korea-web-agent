@@ -12,7 +12,7 @@ const target: NormalizedTarget = {
 
 function offer(snippet: string) {
   const built = buildMarketOffer({
-    title: '와이드뷰 QWGE43UT1 새상품',
+    title: '와이드뷰 QWGE43UT1 이동형 패키지 새상품',
     url: 'https://brand.naver.com/example/products/1',
     snippet,
   }, target, '2026-08-24T09:00:00.000Z');
