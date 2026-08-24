@@ -110,6 +110,7 @@ export interface ResearchRequest {
 
 export interface PurchaseContext {
   ownedCards?: string[];
+  paymentMethods?: string[];
   memberships?: string[];
   budget?: number;
   region?: string;
@@ -118,7 +119,7 @@ export interface PurchaseContext {
 
 export type OfferCondition = 'new' | 'refurbished' | 'open_box' | 'display' | 'used' | 'unknown';
 export type OfferVerification = 'checkout_verified' | 'page_verified' | 'search_metadata' | 'unverified';
-export type OfferPriceBasis = 'cash' | 'owned_card' | 'effective' | 'alternative_condition';
+export type OfferPriceBasis = 'cash' | 'owned_card' | 'conditional_payment' | 'effective' | 'alternative_condition';
 
 export interface MarketOffer {
   id: string;
@@ -140,6 +141,8 @@ export interface MarketOffer {
   membershipPrice?: number;
   cardPrice?: number;
   cardName?: string;
+  paymentPrice?: number;
+  paymentMethod?: string;
   points?: number;
   shippingFee?: number;
   installationFee?: number;
@@ -170,6 +173,7 @@ export interface RankedOffer {
 export interface BestOffers {
   cash?: RankedOffer;
   ownedCard?: RankedOffer;
+  conditionalPayment?: RankedOffer;
   effective?: RankedOffer;
   alternativeCondition?: RankedOffer;
 }
