@@ -82,9 +82,13 @@ function versionToken(value: string): string | undefined {
     ?? normalizeSku(value).match(/(V\d+)$/)?.[1];
 }
 
+function comparisonSku(value: string): string {
+  return normalizeSku(value).replace(/\((V\d+)\)/g, '$1');
+}
+
 export function sameSku(left: string, right: string): boolean {
-  const normalizedLeft = normalizeSku(left);
-  const normalizedRight = normalizeSku(right);
+  const normalizedLeft = comparisonSku(left);
+  const normalizedRight = comparisonSku(right);
   const leftVersion = versionToken(left);
   const rightVersion = versionToken(right);
   if (leftVersion && rightVersion && leftVersion !== rightVersion) return false;
