@@ -93,7 +93,7 @@ export function buildMarketOffer(hit: SearchHit, target: NormalizedTarget, retri
   const window=eventWindow(text,now); const offer:MarketOffer={id:`${market}:${hit.url}`,market,title,url:hit.url,currency:'KRW',retrievedAt,verification:'search_metadata',condition,identityScore:match.score,bundleComplete:complete,eligible:exclusionReasons.length===0,conditions:[],riskFlags,exclusionReasons,observedAt:retrievedAt,validityStatus:window.validityStatus};
   if(window.startsAt)offer.startsAt=window.startsAt;if(window.endsAt)offer.endsAt=window.endsAt;if(window.timeZone)offer.timeZone=window.timeZone;
   if(list)offer.listPrice=list.value;if(sale)offer.salePrice=sale.value;if(coupon){offer.couponPrice=coupon.value;offer.conditions.push('쿠폰 적용 필요');}
-  const membershipName=text.match(MEMBERSHIP_RE)?.[1]?.replace(/\s+/g,' '); if(membership){offer.membershipPrice=membership.value;offer.membershipName=membershipName;offer.conditions.push(`${membershipName??'멤버십'} 가입 조건 확인 필요`);}
+  const membershipName=text.match(MEMBERSHIP_RE)?.[1]?.replace(/\s+/g,' '); if(membership){offer.membershipPrice=membership.value;if(membershipName)offer.membershipName=membershipName;offer.conditions.push(`${membershipName??'멤버십'} 가입 조건 확인 필요`);}
   const nonMemberPrice=exactAmount(text,/비회원\s*(?:판매가|구매가|가격)\s*(\d{1,3}(?:,\d{3})+|\d{4,})\s*원/i); if(nonMemberPrice!==undefined)offer.nonMemberPrice=nonMemberPrice;
   const memberPoints=exactAmount(text,/(?<!비)회원\s*(?:적립|포인트)\s*(\d{1,3}(?:,\d{3})+|\d{4,})\s*원/i); if(memberPoints!==undefined)offer.memberPoints=memberPoints;
   const nonMemberPoints=exactAmount(text,/(?:기본|비회원)\s*(?:적립|포인트)\s*(\d{1,3}(?:,\d{3})+|\d{4,})\s*원/i); if(nonMemberPoints!==undefined)offer.nonMemberPoints=nonMemberPoints;
@@ -105,6 +105,15 @@ export function rankMarketOffers(offers: MarketOffer[], context: PurchaseContext
   const cash=ranked(offers,'cash',context),owned=ranked(offers,'owned_card',context),advertised=ranked(offers,'advertised_payment',context),effective=ranked(offers,'effective',context),alternative=ranked(offers,'alternative_condition',context); const bestOffers:BestOffers={};
   if(cash[0])bestOffers.cash=cash[0];if(owned[0])bestOffers.ownedCard=owned[0];if(advertised[0])bestOffers.advertisedPayment=advertised[0];if(effective[0])bestOffers.effective=effective[0];if(alternative[0])bestOffers.alternativeCondition=alternative[0];
   const paymentPromotions:PaymentPromotion[]=offers.filter((o)=>o.eligible&&o.paymentMethod&&o.paymentPrice!==undefined).map((o)=>({method:o.paymentMethod!,amount:o.paymentPrice!+(o.shippingFee??0),market:o.market,url:o.url,verification:o.verification,retrievedAt:o.retrievedAt,conditions:o.conditions,...(o.startsAt?{startsAt:o.startsAt}:{}),...(o.endsAt?{endsAt:o.endsAt}:{}),...(o.validityStatus?{validityStatus:o.validityStatus}:{})})).sort((a,b)=>a.amount-b.amount);
-  const membershipScenarios:MembershipScenario[]=[]; for(const o of offers){if(!o.eligible)continue;if(o.membershipPrice!==undefined){membershipScenarios.push({member:true,...(o.membershipName?{membership:o.membershipName}:{}),market:o.market,url:o.url,paymentPrice:o.membershipPrice,expectedPoints:o.memberPoints,effectivePrice:o.memberPoints!==undefined?Math.max(0,o.membershipPrice-o.memberPoints):o.membershipPrice,verification:o.verification,retrievedAt:o.retrievedAt,notes:o.conditions});}if(o.nonMemberPrice!==undefined){membershipScenarios.push({member:false,market:o.market,url:o.url,paymentPrice:o.nonMemberPrice,expectedPoints:o.nonMemberPoints,effectivePrice:o.nonMemberPoints!==undefined?Math.max(0,o.nonMemberPrice-o.nonMemberPoints):o.nonMemberPrice,verification:o.verification,retrievedAt:o.retrievedAt,notes:[]});}}
+  const membershipScenarios:MembershipScenario[]=[];
+  for(const o of offers){
+    if(!o.eligible)continue;
+    if(o.membershipPrice!==undefined){
+      membershipScenarios.push({member:true,...(o.membershipName?{membership:o.membershipName}:{}),market:o.market,url:o.url,paymentPrice:o.membershipPrice,...(o.memberPoints!==undefined?{expectedPoints:o.memberPoints}:{}),effectivePrice:o.memberPoints!==undefined?Math.max(0,o.membershipPrice-o.memberPoints):o.membershipPrice,verification:o.verification,retrievedAt:o.retrievedAt,notes:o.conditions});
+    }
+    if(o.nonMemberPrice!==undefined){
+      membershipScenarios.push({member:false,market:o.market,url:o.url,paymentPrice:o.nonMemberPrice,...(o.nonMemberPoints!==undefined?{expectedPoints:o.nonMemberPoints}:{}),effectivePrice:o.nonMemberPoints!==undefined?Math.max(0,o.nonMemberPrice-o.nonMemberPoints):o.nonMemberPrice,verification:o.verification,retrievedAt:o.retrievedAt,notes:[]});
+    }
+  }
   return {bestOffers,rankings:[...cash,...owned,...advertised,...effective,...alternative],paymentPromotions,membershipScenarios};
 }
