@@ -15,8 +15,8 @@ const PRICE_PREFIX = 'price:history:';
 export interface StoredPriceObservation {
   observedAt: string;
   cashPrice: number;
-  sourceUrl?: string | undefined;
-  market?: string | undefined;
+  sourceUrl?: string;
+  market?: string;
 }
 
 interface StoredPriceHistory {
