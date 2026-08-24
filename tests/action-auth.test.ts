@@ -87,3 +87,36 @@ test('agent functions use Action key auth and never authenticate with relay secr
     assert.doesNotMatch(source, /actionAuthorized\([^\n]*KWA_RELAY_SECRET/);
   }
 });
+
+
+test('Custom GPT Action exposes cloud-first shopping intelligence fields', () => {
+  const schema = readFileSync('openapi/korea-web-agent-action.yaml', 'utf8');
+  for (const field of [
+    'paymentMethods',
+    'paymentPrice',
+    'paymentMethod',
+    'conditionalPayment',
+    'priceHistory',
+    'membershipScenarios',
+    'eventWindow',
+    'standardPriceRows',
+  ]) {
+    assert.match(schema, new RegExp(`\\b${field}:`), `Action schema must expose ${field}`);
+  }
+  assert.match(schema, /conditional_payment/);
+});
+
+test('Custom GPT polls both queued and running cloud jobs and does not hard-code a persistent purchase profile', () => {
+  const config = readFileSync('docs/custom-gpt-config.md', 'utf8');
+  assert.match(config, /queued[^\n]*running|queued.*running/is);
+  assert.match(config, /paymentMethods/);
+  assert.doesNotMatch(config, /confirmed profile in every price or recommendation Action call/i);
+  assert.doesNotMatch(config, /삼성 iD SELECT ALL/);
+  assert.doesNotMatch(config, /신한 ANNIVERSE/);
+});
+
+test('202 response is documented as background research queued rather than public research already completed', () => {
+  const schema = readFileSync('openapi/korea-web-agent-action.yaml', 'utf8');
+  assert.match(schema, /'202':[\s\S]*queued|queued[\s\S]*'202':/i);
+  assert.doesNotMatch(schema, /Public research completed and an authenticated PC browser result is pending/);
+});
