@@ -114,8 +114,12 @@ export function validateAgentResearchInput(value: unknown): AgentResearchInput {
       const value = raw[key];
       if (value === undefined) continue;
       if (!Array.isArray(value) || value.length > 20 || value.some((item) => typeof item !== 'string' || !item.trim() || item.length > 200)) throw new Error(`purchaseContext.${key} is invalid`);
-      if ((key === 'ownedCards' || key === 'paymentMethods') && value.some((item) => /(?:\d[ -]?){12,19}/.test(item as string))) {
-        throw new Error(`purchaseContext.${key} accepts names only, never card or account numbers`);
+      const containsSensitiveNumber = value.some((item) => /(?:\d[ -]?){12,19}/.test(item as string));
+      if (key === 'ownedCards' && containsSensitiveNumber) {
+        throw new Error('purchaseContext.ownedCards accepts card names only, never card numbers');
+      }
+      if (key === 'paymentMethods' && containsSensitiveNumber) {
+        throw new Error('purchaseContext.paymentMethods accepts payment method names only, never card or account numbers');
       }
       context[key] = value.map((item) => (item as string).trim());
     }
