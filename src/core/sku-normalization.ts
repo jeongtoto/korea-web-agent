@@ -19,7 +19,7 @@ export function normalizeModelCode(value?: string): string {
 
 export function normalizeVariant(value?: string): string {
   return nfkc(value)
-    .replace(/(\d+)\s*(?:inch|인치|형)\b/gi, '$1인치')
+    .replace(/(\d+)\s*(?:inch\b|인치|형)/gi, '$1인치')
     .replace(/\(?\s*[vV]\s*[-_.]?\s*(\d+[A-Za-z0-9-]*)\s*\)?/g, ' V$1')
     .replace(/[_/,+-]+/g, ' ')
     .replace(/\s+/g, ' ')
@@ -37,7 +37,7 @@ function modelLikeTokens(value?: string): string[] {
 }
 
 function sizeTokens(value?: string): string[] {
-  return [...new Set([...nfkc(value).matchAll(/(\d+)\s*(?:inch|인치|형)\b/gi)].map((match) => `${match[1]}인치`))];
+  return [...new Set([...nfkc(value).matchAll(/(\d+)\s*(?:inch\b|인치|형)/gi)].map((match) => `${match[1]}인치`))];
 }
 
 export function skuFingerprint(target: NormalizedTarget): string {
