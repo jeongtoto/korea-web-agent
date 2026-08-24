@@ -50,7 +50,7 @@ export interface MembershipScenario {
 }
 
 export interface MembershipScenarios {
-  membershipName?: string;
+  membershipName?: string | undefined;
   withoutMembership: MembershipScenario;
   withMembership: MembershipScenario;
 }
