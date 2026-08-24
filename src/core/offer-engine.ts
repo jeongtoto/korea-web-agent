@@ -28,6 +28,8 @@ const MARKET_DOMAINS: Array<[RegExp, string]> = [
   [/(^|\.)bunjang\.co\.kr$/, '번개장터'],
 ];
 
+const PAYMENT_METHOD_PATTERN = /(?:토스\s*페이|카카오\s*페이|네이버\s*페이|N\s*PAY|PAYCO|페이코|삼성\s*페이|애플\s*페이)/i;
+
 function compact(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
@@ -77,6 +79,23 @@ function nearestCardName(text: string, index: number): string | undefined {
   return window.match(/((?:삼성|신한|현대|국민|KB|롯데|하나|우리|NH|농협|BC|비씨|카카오뱅크|토스뱅크)[\w가-힣 ._-]{0,24}카드)/i)?.[1]?.trim();
 }
 
+function normalizedPaymentMethod(raw: string): string {
+  const compacted = raw.replace(/\s+/g, '').toLowerCase();
+  if (compacted === '토스페이') return '토스페이';
+  if (compacted === '카카오페이') return '카카오페이';
+  if (compacted === '네이버페이' || compacted === 'npay') return '네이버페이';
+  if (compacted === 'payco' || compacted === '페이코') return 'PAYCO';
+  if (compacted === '삼성페이') return '삼성페이';
+  if (compacted === '애플페이') return '애플페이';
+  return raw.trim();
+}
+
+function nearestPaymentMethod(text: string, index: number): string | undefined {
+  const window = text.slice(Math.max(0, index - 45), Math.min(text.length, index + 30));
+  const match = window.match(PAYMENT_METHOD_PATTERN)?.[0];
+  return match ? normalizedPaymentMethod(match) : undefined;
+}
+
 function freeShipping(text: string): boolean {
   return /무료\s*배송|배송비\s*0\s*원/i.test(text);
 }
@@ -112,6 +131,10 @@ function priceForBasis(offer: MarketOffer, basis: OfferPriceBasis, context: Purc
   if (basis === 'owned_card') return ownedCard(offer.cardName, context) && offer.cardPrice !== undefined && offer.shippingFee !== undefined
     ? offer.cardPrice + offer.shippingFee
     : undefined;
+  if (basis === 'conditional_payment') {
+    const conditional = offer.paymentPrice ?? offer.cardPrice;
+    return conditional !== undefined && offer.shippingFee !== undefined ? conditional + offer.shippingFee : undefined;
+  }
   return offer.effectivePrice;
 }
 
@@ -119,11 +142,13 @@ function ranked(offers: MarketOffer[], basis: OfferPriceBasis, context: Purchase
   return offers.flatMap((offer) => {
     const amount = priceForBasis(offer, basis, context);
     if (amount === undefined || !Number.isFinite(amount) || amount <= 0) return [];
+    const paymentLabel = offer.paymentMethod ?? offer.cardName ?? '조건부 결제';
     return [{ basis, rank: 0, amount, offer, reasons: [
       basis === 'cash' ? '배송비를 포함한 현금 결제 기준' :
         basis === 'owned_card' ? `${offer.cardName ?? '보유 카드'} 조건 기준` :
-          basis === 'effective' ? '현금 결제액에서 표시된 적립을 차감한 참고 체감가' :
-            `${offer.condition} 상태의 별도 대안`,
+          basis === 'conditional_payment' ? `${paymentLabel} 조건부 결제 기준` :
+            basis === 'effective' ? '현금 결제액에서 표시된 적립을 차감한 참고 체감가' :
+              `${offer.condition} 상태의 별도 대안`,
       `${offer.verification} 검증 수준`,
     ] }];
   }).sort((a, b) => a.amount - b.amount || b.offer.identityScore - a.offer.identityScore)
@@ -137,14 +162,15 @@ export function buildMarketOffer(hit: SearchHit, target: NormalizedTarget, retri
   if (!matches.length) return null;
 
   const card = firstBy(matches, /카드.{0,16}(?:결제|할인|적용|혜택)|(?:결제|할인|적용).{0,16}카드/i);
+  const payment = matches.find((match) => PAYMENT_METHOD_PATTERN.test(match.before.slice(-24)) && /(?:결제|할인|적용|혜택|가)/i.test(match.before.slice(-24)));
   const points = firstBy(matches, /(적립|포인트|리워드|캐시)/i);
   const shipping = firstBy(matches, /(배송비|배송료)/i);
   const list = firstBy(matches, /(정가|정상가|할인\s*전|소비자가)/i);
   const coupon = firstBy(matches, /(쿠폰가|쿠폰\s*적용|쿠폰\s*할인)/i);
   const membership = firstBy(matches, /(회원가|멤버십가|와우가|클럽가)/i);
   const sale = firstBy(matches, /(구매가|판매가|현재가|최저가|할인가|행사가|특가)/i)
-    ?? matches.find((match) => match !== points && match !== shipping && match !== card && match !== list);
-  if (!sale && !card && !coupon && !membership) return null;
+    ?? matches.find((match) => match !== points && match !== shipping && match !== card && match !== payment && match !== list);
+  if (!sale && !card && !payment && !coupon && !membership) return null;
 
   const match = matchEvidenceToProduct(target, hit);
   const condition = conditionFrom(text);
@@ -154,7 +180,7 @@ export function buildMarketOffer(hit: SearchHit, target: NormalizedTarget, retri
   if (!complete) exclusionReasons.push('요청한 세트/패키지 전체 구성이 아닙니다.');
   if (/품절|판매\s*종료/i.test(text)) exclusionReasons.push('품절 또는 판매 종료로 표시됩니다.');
 
-  const salePrice = sale?.value ?? coupon?.value ?? membership?.value ?? card?.value;
+  const salePrice = sale?.value ?? coupon?.value ?? membership?.value ?? card?.value ?? payment?.value;
   const shippingFee = freeShipping(text) ? 0 : shipping?.value;
   const shippingKnown = shippingFee !== undefined || /배송비\s*포함/i.test(text);
   const totalCashPrice = salePrice !== undefined && shippingKnown ? salePrice + (shippingFee ?? 0) : undefined;
@@ -194,6 +220,12 @@ export function buildMarketOffer(hit: SearchHit, target: NormalizedTarget, retri
     if (cardName) offer.cardName = cardName;
     offer.conditions.push(`${cardName ?? '특정 카드'} 결제 조건`);
   }
+  if (payment) {
+    offer.paymentPrice = payment.value;
+    const paymentMethod = nearestPaymentMethod(text, payment.index);
+    if (paymentMethod) offer.paymentMethod = paymentMethod;
+    offer.conditions.push(`${paymentMethod ?? '간편결제'} 결제 조건`);
+  }
   if (points) offer.points = points.value;
   if (shippingFee !== undefined) offer.shippingFee = shippingFee;
   if (totalCashPrice !== undefined) offer.totalCashPrice = totalCashPrice;
@@ -208,12 +240,14 @@ export function rankMarketOffers(offers: MarketOffer[], context: PurchaseContext
 } {
   const cash = ranked(offers, 'cash', context);
   const ownedCard = ranked(offers, 'owned_card', context);
+  const conditionalPayment = ranked(offers, 'conditional_payment', context);
   const effective = ranked(offers, 'effective', context);
   const alternative = ranked(offers, 'alternative_condition', context);
   const bestOffers: BestOffers = {};
   if (cash[0]) bestOffers.cash = cash[0];
   if (ownedCard[0]) bestOffers.ownedCard = ownedCard[0];
+  if (conditionalPayment[0]) bestOffers.conditionalPayment = conditionalPayment[0];
   if (effective[0]) bestOffers.effective = effective[0];
   if (alternative[0]) bestOffers.alternativeCondition = alternative[0];
-  return { bestOffers, rankings: [...cash, ...ownedCard, ...effective, ...alternative] };
+  return { bestOffers, rankings: [...cash, ...ownedCard, ...conditionalPayment, ...effective, ...alternative] };
 }
