@@ -79,6 +79,13 @@ export async function claimQueuedAgentResearch(
   return input;
 }
 
+export async function releaseAgentResearchInput(
+  store: JsonKeyValueStore,
+  jobId: string,
+): Promise<void> {
+  await store.delete(inputKey(boundedId(jobId)));
+}
+
 export async function finishAgentResearchJob(
   store: JsonKeyValueStore,
   jobId: string,
@@ -99,7 +106,7 @@ export async function finishAgentResearchJob(
   delete state.error;
   await store.setJSON(resultKey(id), { ...result, jobId: id, status: terminalStatus });
   await store.setJSON(stateKey(id), state);
-  await store.delete(inputKey(id));
+  await releaseAgentResearchInput(store, id);
   return state;
 }
 
@@ -119,7 +126,7 @@ export async function failAgentResearchJob(
     error: error.slice(0, 500),
   };
   await store.setJSON(stateKey(id), state);
-  await store.delete(inputKey(id));
+  await releaseAgentResearchInput(store, id);
   return state;
 }
 
