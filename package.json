@@ -13,7 +13,8 @@
     "start": "node dist/src/server.js",
     "dev": "node --experimental-strip-types src/server.ts",
     "relay": "node --experimental-strip-types src/relay/server.ts",
-    "connector": "node --experimental-strip-types src/relay/connector.ts"
+    "connector": "node --experimental-strip-types src/relay/connector.ts",
+    "local-agent": "node --experimental-strip-types src/relay/local-agent.ts"
   },
   "devDependencies": {
     "typescript": "5.8.3"
