@@ -20,6 +20,10 @@ import type {
   ResearchJob,
   ResearchJobStatus,
   ResearchRequest,
+  PriceHistoryReport,
+  MembershipScenariosReport,
+  EventWindowReport,
+  StandardPriceRowReport,
 } from '../core/types.ts';
 import { resolveProduct } from '../orchestrator/product-resolver.ts';
 import type { SearchHit } from '../providers/index.ts';
@@ -81,6 +85,10 @@ export interface AgentResearchResult {
   marketCoverage?: MarketCoverage[];
   recommendations?: ProductRecommendation[];
   manualChecks?: ManualCheck[];
+  priceHistory?: PriceHistoryReport;
+  membershipScenarios?: MembershipScenariosReport;
+  eventWindow?: EventWindowReport;
+  standardPriceRows?: StandardPriceRowReport[];
   relay: AgentRelaySummary;
   summary: string;
   reasons: string[];
@@ -216,6 +224,10 @@ export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {
   if (report?.marketCoverage) result.marketCoverage = report.marketCoverage;
   if (report?.recommendations) result.recommendations = report.recommendations;
   if (report?.manualChecks) result.manualChecks = report.manualChecks;
+  if (report?.priceHistory) result.priceHistory = report.priceHistory;
+  if (report?.membershipScenarios) result.membershipScenarios = report.membershipScenarios;
+  if (report?.eventWindow) result.eventWindow = report.eventWindow;
+  if (report?.standardPriceRows) result.standardPriceRows = report.standardPriceRows;
   if (job.request.purchaseContext) result.purchaseContextApplied = job.request.purchaseContext;
   return result;
 }
