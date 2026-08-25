@@ -88,7 +88,6 @@ test('agent functions use Action key auth and never authenticate with relay secr
   }
 });
 
-
 test('Custom GPT Action exposes cloud-first shopping intelligence fields', () => {
   const schema = readFileSync('openapi/korea-web-agent-action.yaml', 'utf8');
   for (const field of [
@@ -119,4 +118,29 @@ test('202 response is documented as background research queued rather than publi
   const schema = readFileSync('openapi/korea-web-agent-action.yaml', 'utf8');
   assert.match(schema, /'202':[\s\S]*queued|queued[\s\S]*'202':/i);
   assert.doesNotMatch(schema, /Public research completed and an authenticated PC browser result is pending/);
+});
+
+test('terminal Action schema exposes validated reliability and presentation fields additively', () => {
+  const schema = readFileSync('openapi/korea-web-agent-action.yaml', 'utf8');
+  for (const field of [
+    'canonicalIdentity',
+    'validationWarnings',
+    'presentation',
+    'identityVerdict',
+    'constraintStatus',
+    'fieldVerification',
+  ]) {
+    assert.match(schema, new RegExp(`\\b${field}:`), `Action schema must expose ${field}`);
+  }
+  assert.match(schema, /operationId:\s*startProductResearch/);
+  assert.match(schema, /operationId:\s*getProductResearchResult/);
+});
+
+test('Custom GPT instructions prefer server presentation and never override INSUFFICIENT with web-derived BUY', () => {
+  const config = readFileSync('docs/custom-gpt-config.md', 'utf8');
+  assert.match(config, /presentation\.markdown/i);
+  assert.match(config, /INSUFFICIENT/);
+  assert.match(config, /purchaseContextApplied/);
+  assert.match(config, /validationWarnings/);
+  assert.match(config, /never override|do not override|must not override/i);
 });
