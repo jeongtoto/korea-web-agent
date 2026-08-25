@@ -140,6 +140,7 @@ export interface ProductCandidate {
   score: number;
   sourceUrls: string[];
   title: string;
+  verifiedFacts?: Record<string, unknown>;
 }
 
 export interface ProductResolution {
