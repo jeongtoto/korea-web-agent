@@ -36,46 +36,54 @@ function explicitCondition(question: string): OfferCondition | 'any' {
   return 'any';
 }
 
-function modelTokens(question: string): string[] {
-  return [...new Set((question.match(MODEL_TOKEN_RE) ?? []).map((token) => token.toUpperCase()))];
+function modelTokens(text: string): string[] {
+  return [...new Set((text.match(MODEL_TOKEN_RE) ?? []).map((token) => token.toUpperCase()))];
 }
 
 function inclusionSuppressed(question: string): boolean {
   return /(본체\s*만|본품\s*만|단품|스탠드\s*(?:별도|미포함)|거치대\s*(?:별도|미포함))/i.test(question);
 }
 
-function wordingImpliesBundle(question: string): boolean {
-  return /\+|세트|셋트|패키지|번들|포함/i.test(question);
+function wordingImpliesBundle(text: string): boolean {
+  return /\+|세트|셋트|패키지|번들|포함/i.test(text);
 }
 
-function versionNearModel(question: string, model: string): string | undefined {
-  const upper = question.toUpperCase();
+function versionNearModel(text: string, model: string): string | undefined {
+  const upper = text.toUpperCase();
   const index = upper.indexOf(model.toUpperCase());
   if (index < 0) return undefined;
-  const window = question.slice(Math.max(0, index - 8), index + model.length + 24);
+  const window = text.slice(Math.max(0, index - 8), index + model.length + 24);
   return window.match(VERSION_RE)?.[1]?.toUpperCase();
 }
 
-function componentType(question: string, model: string): string {
-  const upper = question.toUpperCase();
+function componentType(text: string, model: string): string {
+  const upper = text.toUpperCase();
   const index = upper.indexOf(model.toUpperCase());
   const window = index >= 0
-    ? question.slice(Math.max(0, index - 24), index + model.length + 32)
-    : question;
+    ? text.slice(Math.max(0, index - 24), index + model.length + 32)
+    : text;
   if (/(스탠드|거치대|이동형|무빙)/i.test(window)) return 'stand';
   return 'component';
 }
 
+function resolvedIdentityText(target: NormalizedTarget, question: string): string {
+  if (inclusionSuppressed(question)) return question;
+  const resolved = [target.name, target.variant].filter(Boolean).join(' ');
+  if (wordingImpliesBundle(question)) return `${question} ${resolved}`.trim();
+  return `${resolved} ${question}`.trim();
+}
+
 function buildRequiredComponents(
+  identityText: string,
   question: string,
   primaryModel: string | undefined,
 ): CanonicalComponent[] {
-  if (inclusionSuppressed(question) || !wordingImpliesBundle(question)) return [];
-  const models = modelTokens(question).filter((model) => model !== primaryModel);
+  if (inclusionSuppressed(question) || !wordingImpliesBundle(identityText)) return [];
+  const models = modelTokens(identityText).filter((model) => model !== primaryModel);
   return models.map((model) => {
-    const version = versionNearModel(question, model);
+    const version = versionNearModel(identityText, model);
     return {
-      type: componentType(question, model),
+      type: componentType(identityText, model),
       model,
       ...(version ? { version } : {}),
       quantity: 1,
@@ -83,21 +91,23 @@ function buildRequiredComponents(
   });
 }
 
-function inferredPrimaryModel(target: NormalizedTarget, question: string): string | undefined {
+function inferredPrimaryModel(target: NormalizedTarget, identityText: string): string | undefined {
   const explicit = normalizeCode(target.model);
   if (explicit) return explicit;
-  return modelTokens(question)[0];
+  return modelTokens(identityText)[0];
 }
 
 export function compileCanonicalIdentity(
   target: NormalizedTarget,
   question: string,
 ): CanonicalProductIdentity {
-  const primaryModel = inferredPrimaryModel(target, question);
+  const identityText = resolvedIdentityText(target, question);
+  const primaryModel = inferredPrimaryModel(target, identityText);
   const size = question.match(SIZE_RE)?.[1]
-    ?? target.variant?.match(SIZE_RE)?.[1];
+    ?? target.variant?.match(SIZE_RE)?.[1]
+    ?? target.name?.match(SIZE_RE)?.[1];
   const brand = normalizeBrand(target.brand);
-  const requiredComponents = buildRequiredComponents(question, primaryModel);
+  const requiredComponents = buildRequiredComponents(identityText, question, primaryModel);
 
   return {
     kind: 'product',
