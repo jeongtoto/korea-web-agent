@@ -81,6 +81,9 @@ test('exact bundle candidate is direct-fetched and exact page creates page_verif
   const verified = result.offers.find((offer) => offer.verification === 'page_verified');
   assert.ok(verified);
   assert.equal(verified?.eligible, true);
+  assert.equal(verified?.identityVerdict, 'exact');
+  assert.equal(verified?.constraintStatus, 'eligible');
+  assert.equal(verified?.fieldVerification?.shipping, 'page_verified');
   assert.equal(verified?.shippingFee, 0);
   assert.equal(verified?.totalCashPrice, 389550);
   assert.equal(result.attempt.verification.succeeded, 1);
@@ -107,9 +110,49 @@ test('search snippet price is retained as preliminary market data and never a de
   assert.equal(preliminary?.salePrice, 299000);
   assert.equal(preliminary?.shippingFee, 0);
   assert.equal(preliminary?.eligible, false);
+  assert.equal(preliminary?.constraintStatus, 'preliminary');
+  assert.equal(preliminary?.fieldVerification?.price, 'search_metadata');
   assert.ok(preliminary?.exclusionReasons.includes('search_metadata_requires_page_verification'));
   assert.ok(result.evidence.some((item) => item.acquisitionMethod === 'search_metadata'));
   assert.equal(result.attempt.verification.failed, 1);
   assert.equal(result.attempt.failureKind, 'blocked_by_site');
   assert.equal(result.attempt.status, 'failed');
+});
+
+test('same-SKU open-box bundle is direct-verified and classified only as an alternative condition', async () => {
+  let fetched = 0;
+  const result = await researchProviderSource({
+    source,
+    target: { kind: 'product', brand: '와이드뷰', model: 'QWGE43UT1', name: 'QWGE43UT1 EKWBYME78W V3 43인치 패키지' },
+    canonicalIdentity: canonical,
+    constraints: [],
+    publicSearch: async () => [{
+      title: 'QWGE43UT1 EKWBYME78W V3 43인치 반품 패키지 296,140원',
+      url: 'https://brand.naver.com/widevu/products/open-box',
+      snippet: '반품 상품 무료배송',
+    }],
+    directPage: async () => {
+      fetched += 1;
+      return page({
+        url: 'https://brand.naver.com/widevu/products/open-box',
+        title: 'QWGE43UT1 EKWBYME78W V3 43인치 반품 패키지',
+        product: {
+          name: 'QWGE43UT1 EKWBYME78W V3 43인치 반품 패키지',
+          brand: '와이드뷰',
+          sku: 'QWGE43UT1',
+          offers: { price: 296140, currency: 'KRW', availability: 'InStock', shippingFee: 0 },
+        },
+      });
+    },
+    now,
+  });
+
+  assert.equal(fetched, 1);
+  const verified = result.offers.find((offer) => offer.verification === 'page_verified');
+  assert.ok(verified);
+  assert.equal(verified?.identityVerdict, 'same_except_condition');
+  assert.equal(verified?.condition, 'open_box');
+  assert.equal(verified?.eligible, false);
+  assert.equal(verified?.constraintStatus, 'eligible');
+  assert.equal(verified?.totalCashPrice, 296140);
 });
