@@ -1,8 +1,9 @@
+import { isDecisiveCashOffer } from '../core/offer-engine.ts';
+import { assertPublicUrl, isRelayDomainAllowed } from '../core/policy.ts';
 import type { RelayCandidate, ResearchJob, ResearchRequest } from '../core/types.ts';
+import { enrichShoppingReport } from '../report/shopping-intelligence-report.ts';
 import { toRelayProductHint } from '../relay/protocol.ts';
 import type { RelayTarget } from '../relay/protocol.ts';
-import { assertPublicUrl, isRelayDomainAllowed } from '../core/policy.ts';
-import { enrichShoppingReport } from '../report/shopping-intelligence-report.ts';
 import { appendPriceObservation } from './price-history.ts';
 import {
   getPersistentRelayStatus,
@@ -27,19 +28,17 @@ async function attachPublicShoppingIntelligence(
   enrichShoppingReport(job.report, job.updatedAt);
 
   const cashWinner = job.report.bestOffers?.cash;
-  const fallbackCash = job.report.price?.cashPaymentPrice;
-  const cashPrice = cashWinner?.amount ?? fallbackCash;
-  if (cashPrice !== undefined && Number.isFinite(cashPrice) && cashPrice > 0) {
-    const observedAt = cashWinner?.offer.retrievedAt ?? job.updatedAt;
-    const sourceUrl = cashWinner?.offer.url ?? job.report.price?.sourceUrl;
-    const market = cashWinner?.offer.market;
-    const history = await appendPriceObservation(store, job.target, {
-      observedAt,
-      cashPrice,
-      ...(sourceUrl ? { sourceUrl } : {}),
-      ...(market ? { market } : {}),
-    }, nowMs);
-    if (history) job.report.priceHistory = history;
+  if (cashWinner && isDecisiveCashOffer(cashWinner.offer)) {
+    const cashPrice = cashWinner.amount;
+    if (Number.isFinite(cashPrice) && cashPrice > 0) {
+      const history = await appendPriceObservation(store, job.target, {
+        observedAt: cashWinner.offer.retrievedAt,
+        cashPrice,
+        sourceUrl: cashWinner.offer.url,
+        market: cashWinner.offer.market,
+      }, nowMs, job.researchContext?.canonicalIdentity);
+      if (history) job.report.priceHistory = history;
+    }
   }
   return job;
 }
