@@ -2,6 +2,7 @@ import { constraintEligibility, evaluateProductConstraints } from '../core/const
 import { candidateIdentityFromText, compareCanonicalIdentity } from '../core/identity-match.ts';
 import { assertPublicUrl } from '../core/policy.ts';
 import type {
+  CanonicalIdentityMatch,
   CanonicalProductIdentity,
   MarketOffer,
   NormalizedTarget,
@@ -16,7 +17,7 @@ import type {
 } from './market-provider.ts';
 import type { VerificationCache } from './verification-cache.ts';
 
-function pageText(page: DirectPageResult): string {
+export function directPageIdentityText(page: DirectPageResult): string {
   return [
     page.facts?.name,
     page.facts?.brand,
@@ -30,6 +31,13 @@ function pageText(page: DirectPageResult): string {
     page.title,
     page.description,
   ].filter(Boolean).join(' ');
+}
+
+export function directPageIdentityMatch(
+  canonicalIdentity: CanonicalProductIdentity,
+  page: DirectPageResult,
+): CanonicalIdentityMatch {
+  return compareCanonicalIdentity(canonicalIdentity, candidateIdentityFromText(directPageIdentityText(page)));
 }
 
 function unavailable(value: string | undefined): boolean {
@@ -69,12 +77,12 @@ export function verifiedSellerOfferFromPage(input: VerifiedSellerOfferInput): Ma
   const price = facts?.price ?? input.page.product?.offers?.price;
   if (price === undefined || !Number.isFinite(price) || price <= 0) return null;
 
-  const identity = compareCanonicalIdentity(input.canonicalIdentity, candidateIdentityFromText(pageText(input.page)));
+  const candidateIdentity = candidateIdentityFromText(directPageIdentityText(input.page));
+  const identity = compareCanonicalIdentity(input.canonicalIdentity, candidateIdentity);
   const constraintStatus = constraintEligibility(evaluateProductConstraints(input.constraints, facts?.attributes ?? {}));
   const shippingFee = facts?.shippingFee ?? input.page.product?.offers?.shippingFee;
   const availability = facts?.availability ?? input.page.product?.offers?.availability;
-  const conditionCandidate = candidateIdentityFromText(pageText(input.page)).condition;
-  const condition = conditionCandidate === 'any' ? 'unknown' : conditionCandidate;
+  const condition = candidateIdentity.condition === 'any' ? 'unknown' : candidateIdentity.condition;
   const eligible = identity.verdict === 'exact'
     && constraintStatus === 'eligible'
     && shippingFee !== undefined
@@ -141,13 +149,6 @@ export function sellerCandidatesFromComparisonPage(
   comparison: DiscoveryCandidate,
   page: DirectPageResult,
 ): SellerCandidate[] {
-  const identity = compareCanonicalIdentity(
-    page.product || page.facts || page.title
-      ? ({} as never)
-      : ({} as never),
-    ({} as never),
-  );
-  void identity;
   return (page.sellerLinks ?? []).slice(0, provider.budget.sellerExpansion).flatMap((link) => {
     try {
       const sellerUrl = assertPublicUrl(link.url).toString();
