@@ -156,6 +156,89 @@ components:
           type: array
           maxItems: 20
           items: { type: string, maxLength: 200 }
+    CanonicalComponent:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string }
+        model: { type: string }
+        version: { type: string }
+        quantity: { type: integer, minimum: 1 }
+        aliases:
+          type: array
+          items: { type: string }
+    CanonicalProductIdentity:
+      type: object
+      required: [kind, primary, requiredComponents, optionalComponents, condition, source]
+      properties:
+        kind: { type: string, enum: [product] }
+        brand: { type: string }
+        family: { type: string }
+        primary:
+          type: object
+          properties:
+            model: { type: string }
+            size: { type: string }
+            generation: { type: string }
+            capacity: { type: string }
+            color: { type: string }
+        requiredComponents:
+          type: array
+          items: { $ref: '#/components/schemas/CanonicalComponent' }
+        optionalComponents:
+          type: array
+          items: { $ref: '#/components/schemas/CanonicalComponent' }
+        condition:
+          type: string
+          enum: [new, refurbished, open_box, display, used, unknown, any]
+        domesticModel: { type: boolean }
+        installationType: { type: string }
+        source:
+          type: object
+          required: [question, confidence]
+          properties:
+            question: { type: string }
+            url: { type: string, format: uri }
+            confidence: { type: number, minimum: 0, maximum: 1 }
+    FieldVerification:
+      type: object
+      required: [identity, price, shipping]
+      properties:
+        identity: { type: string, enum: [checkout_verified, page_verified, search_metadata, unverified] }
+        price: { type: string, enum: [checkout_verified, page_verified, search_metadata, unverified] }
+        shipping: { type: string, enum: [checkout_verified, page_verified, search_metadata, unverified] }
+        payment: { type: string, enum: [checkout_verified, page_verified, search_metadata, unverified] }
+    ReliabilityIssue:
+      type: object
+      required: [code, severity, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - IDENTITY_INCOMPLETE_IN_WINNER
+            - HARD_CONSTRAINT_UNKNOWN_IN_WINNER
+            - HARD_CONSTRAINT_FAILED_IN_WINNER
+            - SEARCH_METADATA_AS_DECISIVE
+            - UNKNOWN_SHIPPING_IN_WINNER
+            - ALTERNATIVE_SKU_MISMATCH
+            - PERSONALIZED_IDENTITY_MISMATCH
+            - HISTORY_IDENTITY_MISMATCH
+            - UNOWNED_CARD_IN_OWNED_RANKING
+            - POINTS_AS_CASH
+            - EXPIRED_PROMOTION
+            - MARKET_COVERAGE_INCONSISTENT
+            - PURCHASE_CONTEXT_NOT_APPLIED
+        severity: { type: string, enum: [blocker, warning] }
+        message: { type: string }
+    ShoppingPresentation:
+      type: object
+      required: [markdown]
+      properties:
+        markdown: { type: string }
+        sections:
+          type: object
+          additionalProperties:
+            type: string
     MarketOffer:
       type: object
       required: [id, market, title, url, currency, retrievedAt, verification, condition, identityScore, bundleComplete, eligible, conditions, riskFlags, exclusionReasons]
@@ -171,6 +254,10 @@ components:
         identityScore: { type: number, minimum: 0, maximum: 1 }
         bundleComplete: { type: boolean }
         eligible: { type: boolean }
+        identityVerdict: { type: string, enum: [exact, same_except_condition, uncertain, different] }
+        constraintStatus: { type: string, enum: [eligible, preliminary, excluded] }
+        fieldVerification:
+          $ref: '#/components/schemas/FieldVerification'
         seller: { type: string }
         bundleItems: { type: array, items: { type: string } }
         listPrice: { type: number }
@@ -426,6 +513,8 @@ components:
           $ref: '#/components/schemas/ResearchIntent'
         product:
           $ref: '#/components/schemas/ProductIdentity'
+        canonicalIdentity:
+          $ref: '#/components/schemas/CanonicalProductIdentity'
         decision: { type: string, enum: [BUY, WAIT, SKIP, INSUFFICIENT] }
         confidence: { type: number, minimum: 0, maximum: 1 }
         confidenceDimensions:
@@ -480,6 +569,11 @@ components:
           $ref: '#/components/schemas/SourceCoverage'
         purchaseContextApplied:
           $ref: '#/components/schemas/PurchaseContext'
+        validationWarnings:
+          type: array
+          items: { $ref: '#/components/schemas/ReliabilityIssue' }
+        presentation:
+          $ref: '#/components/schemas/ShoppingPresentation'
         errors:
           type: array
           items: { type: string }
