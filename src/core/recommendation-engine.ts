@@ -1,3 +1,9 @@
+import {
+  compileProductConstraints,
+  constraintEligibility,
+  constraintFactsFromText,
+  evaluateProductConstraints,
+} from './constraints.ts';
 import type { MarketOffer, ProductCandidate, ProductRecommendation, PurchaseContext } from './types.ts';
 
 function clamp(value: number): number {
@@ -68,9 +74,32 @@ export function buildRecommendations(input: {
   limit?: number;
 }): ProductRecommendation[] {
   const limit = Math.max(1, Math.min(input.limit ?? 3, 5));
-  return input.candidates
-    .map((candidate) => scoreCandidate(input.question, candidate, input.offers ?? [], input.purchaseContext ?? {}))
-    .sort((a, b) => b.scores.overall - a.scores.overall || b.confidence - a.confidence)
+  const constraints = compileProductConstraints(input.question);
+  const scored = input.candidates.flatMap((candidate) => {
+    const evaluations = evaluateProductConstraints(constraints, constraintFactsFromText(candidate.title));
+    const eligibility = constraintEligibility(evaluations);
+    if (eligibility === 'excluded') return [];
+    const recommendation = scoreCandidate(input.question, candidate, input.offers ?? [], input.purchaseContext ?? {});
+    return [{ recommendation, constraintEligibility: eligibility }];
+  });
+
+  const verified = scored.filter((item) => item.constraintEligibility === 'eligible');
+  const pool = constraints.some((constraint) => constraint.strength === 'hard') && verified.length > 0
+    ? verified
+    : scored;
+
+  return pool
+    .sort((a, b) => {
+      if (a.constraintEligibility !== b.constraintEligibility) {
+        return a.constraintEligibility === 'eligible' ? -1 : 1;
+      }
+      return b.recommendation.scores.overall - a.recommendation.scores.overall
+        || b.recommendation.confidence - a.recommendation.confidence;
+    })
     .slice(0, limit)
-    .map((item, index) => ({ ...item, rank: index + 1 }));
+    .map((item, index) => ({
+      ...item.recommendation,
+      rank: index + 1,
+      preliminary: item.constraintEligibility === 'preliminary' || item.recommendation.preliminary,
+    }));
 }
