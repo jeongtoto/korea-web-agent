@@ -23,7 +23,7 @@ export interface ReliabilityIssue {
   message: string;
 }
 
-interface PurchaseContextApplied {
+export interface PurchaseContextApplied {
   ownedCards: string[];
   paymentMethods: string[];
   memberships: string[];
@@ -32,7 +32,10 @@ interface PurchaseContextApplied {
   preferences: string[];
 }
 
-type ReportWithContext = ProductReport & { purchaseContextApplied?: PurchaseContextApplied };
+type ReportWithReliability = ProductReport & {
+  purchaseContextApplied?: PurchaseContextApplied;
+  validationWarnings?: ReliabilityIssue[];
+};
 
 function issue(
   code: ReliabilityIssueCode,
@@ -59,7 +62,7 @@ function normalizedArray(value: string[] | undefined): string[] {
   return (value ?? []).map((item) => item.trim()).filter(Boolean);
 }
 
-function expectedContext(context: PurchaseContext): PurchaseContextApplied {
+export function normalizePurchaseContextApplied(context: PurchaseContext): PurchaseContextApplied {
   return {
     ownedCards: normalizedArray(context.ownedCards),
     paymentMethods: normalizedArray(context.paymentMethods),
@@ -136,14 +139,14 @@ export function validateProductReport(
     ));
   }
 
-  const applied = (report as ReportWithContext).purchaseContextApplied;
+  const applied = (report as ReportWithReliability).purchaseContextApplied;
   if (applied && !request.purchaseContext) {
     issues.push(issue(
       'PURCHASE_CONTEXT_NOT_APPLIED',
       'Report contains user-specific purchase context that was not supplied in this request.',
     ));
   } else if (request.purchaseContext) {
-    const expected = expectedContext(request.purchaseContext);
+    const expected = normalizePurchaseContextApplied(request.purchaseContext);
     if (!applied || !sameContext(applied, expected)) {
       issues.push(issue(
         'PURCHASE_CONTEXT_NOT_APPLIED',
@@ -171,4 +174,30 @@ export function validateProductReport(
   }
 
   return issues;
+}
+
+export function applyProductReportValidation(
+  report: ProductReport,
+  request: ResearchRequest,
+): ProductReport {
+  const output = report as ReportWithReliability;
+  if (request.purchaseContext) {
+    output.purchaseContextApplied = normalizePurchaseContextApplied(request.purchaseContext);
+  } else {
+    delete output.purchaseContextApplied;
+  }
+
+  const issues = validateProductReport(report, request);
+  output.validationWarnings = issues;
+  const blockers = issues.filter((entry) => entry.severity === 'blocker');
+  if (blockers.length && report.decision === 'BUY') {
+    report.decision = 'INSUFFICIENT';
+    report.confidence = Math.min(report.confidence, 0.49);
+    report.summary = '구매 결론을 내리기 전에 핵심 상품·가격 조건의 추가 검증이 필요합니다.';
+    const reason = '서버 신뢰성 검증에서 구매 결론을 차단하는 항목이 확인되었습니다.';
+    if (!report.reasons.includes(reason)) report.reasons.push(reason);
+    const missing = `추가 검증 필요: ${blockers.map((entry) => entry.message).join(' ')}`;
+    if (!report.missingInformation.includes(missing)) report.missingInformation.push(missing);
+  }
+  return report;
 }
