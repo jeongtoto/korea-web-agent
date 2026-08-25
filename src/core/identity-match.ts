@@ -128,6 +128,15 @@ function conflictingComponentOfSameType(
       && normalizedCode(candidate.model) !== expectedModel);
 }
 
+function hasStableReferenceIdentifier(reference: CanonicalProductIdentity): boolean {
+  return Boolean(
+    normalizedCode(reference.primary.model)
+      || normalizedCode(reference.primary.generation)
+      || normalizedText(reference.primary.capacity)
+      || reference.requiredComponents.some((component) => normalizedCode(component.model)),
+  );
+}
+
 export function compareCanonicalIdentity(
   reference: CanonicalProductIdentity,
   candidate: CanonicalProductIdentity,
@@ -182,6 +191,16 @@ export function compareCanonicalIdentity(
       missing,
       conflicts,
       confidence: denominator ? matched.length / denominator : 0.25,
+    };
+  }
+
+  if (!hasStableReferenceIdentifier(reference)) {
+    return {
+      verdict: 'uncertain',
+      matched,
+      missing: ['stable product identifier'],
+      conflicts,
+      confidence: Math.min(reference.source.confidence, 0.5),
     };
   }
 
