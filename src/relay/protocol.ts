@@ -1,5 +1,6 @@
+import { canonicalIdentityKey } from '../core/canonical-identity.ts';
 import { assertPublicUrl, isRelayDomainAllowed } from '../core/policy.ts';
-import type { NormalizedTarget } from '../core/types.ts';
+import type { CanonicalProductIdentity, NormalizedTarget } from '../core/types.ts';
 
 export const RELAY_READ_ONLY_FIELDS = [
   'title',
@@ -17,7 +18,7 @@ export const RELAY_READ_ONLY_FIELDS = [
 
 export type RelayReadOnlyField = (typeof RELAY_READ_ONLY_FIELDS)[number];
 
-export const RELAY_PRODUCT_HINT_FIELDS = [
+const RELAY_BASE_PRODUCT_HINT_FIELDS = [
   'brand',
   'name',
   'model',
@@ -26,8 +27,30 @@ export const RELAY_PRODUCT_HINT_FIELDS = [
   'liveId',
 ] as const;
 
+export const RELAY_PRODUCT_HINT_FIELDS = [
+  ...RELAY_BASE_PRODUCT_HINT_FIELDS,
+  'canonicalKey',
+  'requiredComponents',
+] as const;
+
 export type RelayProductHintField = (typeof RELAY_PRODUCT_HINT_FIELDS)[number];
-export type RelayProductHint = Partial<Record<RelayProductHintField, string>>;
+export type RelayBaseProductHintField = (typeof RELAY_BASE_PRODUCT_HINT_FIELDS)[number];
+
+export interface RelayRequiredComponentHint {
+  model?: string;
+  version?: string;
+}
+
+export interface RelayProductHint {
+  brand?: string;
+  name?: string;
+  model?: string;
+  variant?: string;
+  productId?: string;
+  liveId?: string;
+  canonicalKey?: string;
+  requiredComponents?: RelayRequiredComponentHint[];
+}
 
 export interface RelayTarget {
   url: string;
@@ -35,7 +58,7 @@ export interface RelayTarget {
   targetHint?: RelayProductHint;
 }
 
-const RELAY_PRODUCT_HINT_LIMITS: Record<RelayProductHintField, number> = {
+const RELAY_PRODUCT_HINT_LIMITS: Record<RelayBaseProductHintField, number> = {
   brand: 200,
   name: 500,
   model: 200,
@@ -43,16 +66,36 @@ const RELAY_PRODUCT_HINT_LIMITS: Record<RelayProductHintField, number> = {
   productId: 200,
   liveId: 200,
 };
+const RELAY_CANONICAL_KEY_LIMIT = 800;
+const RELAY_COMPONENT_LIMIT = 8;
+const RELAY_COMPONENT_FIELD_LIMIT = 200;
 
-export function toRelayProductHint(target: NormalizedTarget | undefined): RelayProductHint | undefined {
-  if (!target) return undefined;
+export function toRelayProductHint(
+  target: NormalizedTarget | undefined,
+  canonicalIdentity?: CanonicalProductIdentity,
+): RelayProductHint | undefined {
+  if (!target && !canonicalIdentity) return undefined;
   const hint: RelayProductHint = {};
-  for (const field of RELAY_PRODUCT_HINT_FIELDS) {
-    const value = target[field];
-    if (typeof value !== 'string') continue;
-    const normalized = value.trim();
-    if (normalized) hint[field] = normalized.slice(0, RELAY_PRODUCT_HINT_LIMITS[field]);
+  if (target) {
+    for (const field of RELAY_BASE_PRODUCT_HINT_FIELDS) {
+      const value = target[field];
+      if (typeof value !== 'string') continue;
+      const normalized = value.trim();
+      if (normalized) hint[field] = normalized.slice(0, RELAY_PRODUCT_HINT_LIMITS[field]);
+    }
   }
+  const key = canonicalIdentity ? canonicalIdentityKey(canonicalIdentity) : undefined;
+  if (key) hint.canonicalKey = key.slice(0, RELAY_CANONICAL_KEY_LIMIT);
+  const requiredComponents = canonicalIdentity?.requiredComponents.flatMap(({ model, version }) => {
+    const normalizedModel = model?.trim();
+    const normalizedVersion = version?.trim();
+    if (!normalizedModel && !normalizedVersion) return [];
+    return [{
+      ...(normalizedModel ? { model: normalizedModel.slice(0, RELAY_COMPONENT_FIELD_LIMIT) } : {}),
+      ...(normalizedVersion ? { version: normalizedVersion.slice(0, RELAY_COMPONENT_FIELD_LIMIT) } : {}),
+    }];
+  }).slice(0, RELAY_COMPONENT_LIMIT);
+  if (requiredComponents?.length) hint.requiredComponents = requiredComponents;
   return Object.keys(hint).length ? hint : undefined;
 }
 
@@ -67,6 +110,35 @@ export interface UnsignedRelayJob {
   nonce: string;
 }
 
+function validateRequiredComponents(value: unknown): void {
+  if (!Array.isArray(value) || value.length === 0 || value.length > RELAY_COMPONENT_LIMIT) {
+    throw new Error('Relay targetHint requiredComponents must contain one to eight entries');
+  }
+  for (const component of value) {
+    if (!component || typeof component !== 'object' || Array.isArray(component)) {
+      throw new Error('Relay targetHint required component is invalid');
+    }
+    const object = component as Record<string, unknown>;
+    const keys = Object.keys(object);
+    if (!keys.length || keys.some((key) => key !== 'model' && key !== 'version')) {
+      throw new Error('Relay targetHint required component fields are unsupported');
+    }
+    let populated = false;
+    for (const key of ['model', 'version'] as const) {
+      const fieldValue = object[key];
+      if (fieldValue === undefined) continue;
+      if (typeof fieldValue !== 'string' || !fieldValue.trim()) {
+        throw new Error(`Relay targetHint required component field must be a non-empty string: ${key}`);
+      }
+      if (fieldValue.length > RELAY_COMPONENT_FIELD_LIMIT) {
+        throw new Error(`Relay targetHint required component field is too long: ${key}`);
+      }
+      populated = true;
+    }
+    if (!populated) throw new Error('Relay targetHint required component must contain model or version');
+  }
+}
+
 function validateTargetHint(value: unknown): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Relay targetHint must be a non-empty object');
@@ -77,13 +149,19 @@ function validateTargetHint(value: unknown): void {
   const allowed = new Set<string>(RELAY_PRODUCT_HINT_FIELDS);
   for (const key of keys) {
     if (!allowed.has(key)) throw new Error(`Relay targetHint field is unsupported: ${key}`);
-    const field = key as RelayProductHintField;
-    const fieldValue = object[field];
-    if (typeof fieldValue !== 'string' || !fieldValue.trim()) {
-      throw new Error(`Relay targetHint field must be a non-empty string: ${field}`);
+    if (key === 'requiredComponents') {
+      validateRequiredComponents(object[key]);
+      continue;
     }
-    if (fieldValue.length > RELAY_PRODUCT_HINT_LIMITS[field]) {
-      throw new Error(`Relay targetHint field is too long: ${field}`);
+    const fieldValue = object[key];
+    if (typeof fieldValue !== 'string' || !fieldValue.trim()) {
+      throw new Error(`Relay targetHint field must be a non-empty string: ${key}`);
+    }
+    const limit = key === 'canonicalKey'
+      ? RELAY_CANONICAL_KEY_LIMIT
+      : RELAY_PRODUCT_HINT_LIMITS[key as RelayBaseProductHintField];
+    if (fieldValue.length > limit) {
+      throw new Error(`Relay targetHint field is too long: ${key}`);
     }
   }
 }
