@@ -6,8 +6,10 @@ import {
   candidateIdentityFromText,
   compareCanonicalIdentity,
 } from '../core/identity-match.ts';
+import { buildMarketOffer } from '../core/offer-engine.ts';
 import { providerFailureKind } from '../core/provider-attempt.ts';
 import { withRetry } from '../core/retry.ts';
+import { deriveExplicitSearchSignals } from '../core/search-signals.ts';
 import type {
   CanonicalProductIdentity,
   EvidenceItem,
@@ -40,13 +42,33 @@ function marketName(source: SourceQuery): string {
   return source.market ?? source.sourceType;
 }
 
+function preliminaryOffer(
+  hit: SearchHit,
+  target: NormalizedTarget,
+  retrievedAt: string,
+  verdict: string,
+): MarketOffer | null {
+  if (verdict === 'different') return null;
+  const offer = buildMarketOffer(hit, target, retrievedAt);
+  if (!offer) return null;
+  offer.verification = 'search_metadata';
+  offer.eligible = false;
+  if (!offer.exclusionReasons.includes('search_metadata_requires_page_verification')) {
+    offer.exclusionReasons.push('search_metadata_requires_page_verification');
+  }
+  return offer;
+}
+
 function searchEvidence(
   source: SourceQuery,
   hit: SearchHit,
+  target: NormalizedTarget,
   retrievedAt: string,
   verdict: string,
   score: number,
+  offer: MarketOffer | null,
 ): EvidenceItem {
+  const signals = deriveExplicitSearchSignals(hit, source.evidenceClass, target);
   return {
     claim: [hit.title, hit.snippet].filter(Boolean).join(' — '),
     sourceUrl: hit.url,
@@ -58,7 +80,13 @@ function searchEvidence(
     confidence: verdict === 'exact' ? Math.min(0.62, 0.42 + score * 0.2) : 0.34,
     specificity: verdict === 'exact' ? 'exact_product' : 'category',
     notes: `Discovery-only retailer metadata. Canonical identity verdict: ${verdict}. Direct page verification is required before decisive ranking.`,
-    data: { identityVerdict: verdict, identityScore: score, discoveryOnly: true },
+    data: {
+      identityVerdict: verdict,
+      identityScore: score,
+      discoveryOnly: true,
+      ...signals,
+      ...(offer ? { marketOffer: offer } : {}),
+    },
   };
 }
 
@@ -174,7 +202,15 @@ export async function researchProviderSource(
     if (match.verdict === 'exact') attempt.identity.exact += 1;
     else if (match.verdict === 'uncertain' || match.verdict === 'same_except_condition') attempt.identity.uncertain += 1;
     else attempt.identity.different += 1;
-    evidence.push(searchEvidence(input.source, hit, input.now().toISOString(), match.verdict, match.confidence));
+
+    const retrievedAt = input.now().toISOString();
+    const discoveryOffer = preliminaryOffer(hit, input.target, retrievedAt, match.verdict);
+    if (discoveryOffer) {
+      offers.push(discoveryOffer);
+      attempt.offers.extracted += 1;
+    }
+    evidence.push(searchEvidence(input.source, hit, input.target, retrievedAt, match.verdict, match.confidence, discoveryOffer));
+
     if (match.verdict === 'exact' || match.verdict === 'uncertain') {
       promising.push({ hit, verdict: match.verdict, score: match.confidence });
     }
