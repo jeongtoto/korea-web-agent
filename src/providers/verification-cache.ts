@@ -14,7 +14,12 @@ export function createVerificationCache<T>(): VerificationCache<T> {
       const existing = inFlight.get(key);
       if (existing) return existing;
 
-      const pending = Promise.resolve().then(loader);
+      let pending: Promise<T>;
+      try {
+        pending = loader();
+      } catch (error) {
+        return Promise.reject(error);
+      }
       inFlight.set(key, pending);
       pending.catch(() => {
         if (inFlight.get(key) === pending) inFlight.delete(key);
