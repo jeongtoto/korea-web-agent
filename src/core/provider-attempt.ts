@@ -11,8 +11,8 @@ export function providerFailureKind(error: unknown): ProviderFailureKind {
 
 function derivedStatus(attempt: ProviderAttempt): MarketCoverage['status'] {
   if (!attempt.discovery.attempted) return 'not_attempted';
-  if (attempt.failureKind && (attempt.verification.failed > 0 || attempt.status === 'failed')) return 'failed';
   if (attempt.verification.succeeded > 0 && attempt.offers.eligible > 0) return 'verified';
+  if (attempt.failureKind && (attempt.verification.failed > 0 || attempt.status === 'failed')) return 'failed';
   if (attempt.identity.exact + attempt.identity.uncertain > 0 || attempt.offers.extracted > 0) return 'found_unverified';
   return 'no_match';
 }
