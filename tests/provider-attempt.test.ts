@@ -67,6 +67,21 @@ test('page-verified eligible offer yields verified market coverage', () => {
   assert.equal(coverage[0]?.verified, 1);
 });
 
+test('one blocked URL does not overwrite a verified eligible offer from the same market', () => {
+  const coverage = deriveMarketCoverage([attempt({
+    market: '네이버',
+    discovery: { attempted: true, hitCount: 3 },
+    identity: { exact: 2, uncertain: 0, different: 1 },
+    verification: { attempted: 2, succeeded: 1, failed: 1 },
+    offers: { extracted: 1, eligible: 1 },
+    failureKind: 'blocked_by_site',
+    failureMessage: 'one seller blocked',
+    status: 'verified',
+  })]);
+  assert.equal(coverage[0]?.status, 'verified');
+  assert.equal(coverage[0]?.verified, 1);
+});
+
 test('semantic provider failure mapping distinguishes login, block, transient, parse and relay cases', () => {
   assert.equal(providerFailureKind(new Error('401 Unauthorized login required')), 'login_required');
   assert.equal(providerFailureKind(new Error('403 bot blocked by site policy')), 'blocked_by_site');
