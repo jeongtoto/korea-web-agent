@@ -12,8 +12,13 @@ import {
   verifiedSellerOfferFromPage,
 } from '../seller-expansion.ts';
 
-const definition = providerDefinitionById('coupang');
-if (!definition) throw new Error('Coupang provider definition is missing');
+function requireDefinition() {
+  const value = providerDefinitionById('coupang');
+  if (!value) throw new Error('Coupang provider definition is missing');
+  return value;
+}
+
+const definition = requireDefinition();
 
 function compact(value: string | undefined): string {
   return (value ?? '').replace(/\s+/g, ' ').trim();
