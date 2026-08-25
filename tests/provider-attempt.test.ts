@@ -82,6 +82,38 @@ test('one blocked URL does not overwrite a verified eligible offer from the same
   assert.equal(coverage[0]?.verified, 1);
 });
 
+test('provider v2 diagnostics survive coverage derivation while verified status keeps precedence', () => {
+  const coverage = deriveMarketCoverage([attempt({
+    providerId: 'danawa',
+    market: '다나와',
+    discovery: { attempted: true, hitCount: 3 },
+    identity: { exact: 2, uncertain: 0, different: 1 },
+    verification: { attempted: 2, succeeded: 1, failed: 1 },
+    offers: { extracted: 2, eligible: 1 },
+    comparisonPages: 2,
+    expandedSellers: 4,
+    exactOffers: 1,
+    eligibleSellers: 1,
+    failureKind: 'blocked_by_site',
+    failureMessage: 'one downstream seller blocked',
+    status: 'verified',
+  })]);
+
+  assert.deepEqual(coverage[0], {
+    providerId: 'danawa',
+    market: '다나와',
+    attempted: true,
+    found: 2,
+    verified: 1,
+    status: 'verified',
+    comparisonPages: 2,
+    expandedSellers: 4,
+    exactOffers: 1,
+    eligibleSellers: 1,
+    failureKind: 'blocked_by_site',
+  });
+});
+
 test('semantic provider failure mapping distinguishes login, block, transient, parse and relay cases', () => {
   assert.equal(providerFailureKind(new Error('401 Unauthorized login required')), 'login_required');
   assert.equal(providerFailureKind(new Error('403 bot blocked by site policy')), 'blocked_by_site');
