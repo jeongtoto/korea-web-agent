@@ -146,6 +146,7 @@ test('bedding category question returns a ranked Best 3 with design, care, revie
   }, {
     publicSearch: async () => beddingHits,
     cloudResearch: async (request, context) => runResearch(request, createDefaultResearchDependencies({
+      directPage: async (requestedUrl) => ({ url: requestedUrl, evidence: [] }),
       publicSearch: async () => beddingHits,
       academicSearch: async () => [],
       relayClient: null,
