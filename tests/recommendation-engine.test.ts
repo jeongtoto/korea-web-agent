@@ -32,3 +32,19 @@ test('marks weakly evidenced candidates preliminary instead of presenting certai
   assert.equal(result[0]?.preliminary, true);
   assert.ok((result[0]?.confidence ?? 1) < 0.7);
 });
+
+test('returns only hard-constraint verified frames when verified options exist instead of padding the shortlist', () => {
+  const result = buildRecommendations({
+    question: '1670×2075 매트리스가 실제로 올라가야 함. 서랍형 필수. 무헤드 또는 소파형 헤드만.',
+    limit: 5,
+    candidates: [
+      candidate('A 프레임 1700×2075 서랍형 소파형 헤드 리뷰 4.8', 0.92),
+      candidate('B 프레임 1680×2100 서랍형 무헤드 리뷰 4.7', 0.9),
+      candidate('C 프레임 서랍형 소파형 헤드 리뷰 4.9', 0.99),
+      candidate('D 프레임 1700×2000 서랍형 소파형 헤드 리뷰 4.9', 0.99),
+    ],
+  });
+
+  assert.equal(result.length, 2);
+  assert.deepEqual(result.map((item) => item.title.slice(0, 1)), ['A', 'B']);
+});
