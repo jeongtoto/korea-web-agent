@@ -72,12 +72,15 @@ function buildRequiredComponents(
 ): CanonicalComponent[] {
   if (inclusionSuppressed(question) || !wordingImpliesBundle(question)) return [];
   const models = modelTokens(question).filter((model) => model !== primaryModel);
-  return models.map((model) => ({
-    type: componentType(question, model),
-    model,
-    ...(versionNearModel(question, model) ? { version: versionNearModel(question, model) } : {}),
-    quantity: 1,
-  }));
+  return models.map((model) => {
+    const version = versionNearModel(question, model);
+    return {
+      type: componentType(question, model),
+      model,
+      ...(version ? { version } : {}),
+      quantity: 1,
+    };
+  });
 }
 
 function inferredPrimaryModel(target: NormalizedTarget, question: string): string | undefined {
