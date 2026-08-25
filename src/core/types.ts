@@ -99,6 +99,16 @@ export interface CanonicalProductIdentity {
   };
 }
 
+export type IdentityVerdict = 'exact' | 'same_except_condition' | 'uncertain' | 'different';
+
+export interface CanonicalIdentityMatch {
+  verdict: IdentityVerdict;
+  matched: string[];
+  missing: string[];
+  conflicts: string[];
+  confidence: number;
+}
+
 export interface ProductMatchResult {
   level: ProductMatchLevel;
   score: number;
