@@ -3,6 +3,7 @@ import { compileProductConstraints } from '../core/constraints.ts';
 import { normalizeEvidence } from '../core/evidence.ts';
 import { matchEvidenceToProduct } from '../core/product-match.ts';
 import { deriveMarketCoverage } from '../core/provider-attempt.ts';
+import { applyProductReportValidation } from '../core/response-validator.ts';
 import { deriveExplicitSearchSignals } from '../core/search-signals.ts';
 import { withRetry } from '../core/retry.ts';
 import type {
@@ -542,6 +543,7 @@ export async function runResearch(
         ...(request.purchaseContext ? { purchaseContext: request.purchaseContext } : {}),
       });
     }
+    job.report = applyProductReportValidation(job.report, job.request);
   }
 
   return job;
