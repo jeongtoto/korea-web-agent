@@ -5,6 +5,7 @@ import type {
   NormalizedTarget,
   OfferCondition,
   OfferPriceBasis,
+  OfferVerification,
   PurchaseContext,
   RankedOffer,
 } from './types.ts';
@@ -124,16 +125,55 @@ function ownedCard(cardName: string | undefined, context: PurchaseContext): bool
   });
 }
 
+function strongVerification(value: OfferVerification | undefined): boolean {
+  return value === 'page_verified' || value === 'checkout_verified';
+}
+
+function unavailable(value: string | undefined): boolean {
+  return Boolean(value && /(out[_ -]?of[_ -]?stock|sold[_ -]?out|discontinued|ended|품절|판매\s*종료|종료)/i.test(value));
+}
+
+function fieldVerificationSupportsDecision(offer: MarketOffer): boolean {
+  if (!offer.fieldVerification) return true;
+  return strongVerification(offer.fieldVerification.identity)
+    && strongVerification(offer.fieldVerification.price)
+    && strongVerification(offer.fieldVerification.shipping);
+}
+
+export function isDecisiveCashOffer(offer: MarketOffer): boolean {
+  if (!offer.eligible || !offer.bundleComplete) return false;
+  if (offer.condition !== 'new' && offer.condition !== 'unknown') return false;
+  if (!strongVerification(offer.verification)) return false;
+  if (offer.shippingFee === undefined || offer.totalCashPrice === undefined) return false;
+  if (unavailable(offer.availability)) return false;
+  if (offer.identityVerdict !== undefined && offer.identityVerdict !== 'exact') return false;
+  if (offer.constraintStatus !== undefined && offer.constraintStatus !== 'eligible') return false;
+  return fieldVerificationSupportsDecision(offer);
+}
+
+export function isAlternativeConditionOffer(offer: MarketOffer): boolean {
+  if (offer.condition === 'new' || offer.condition === 'unknown') return false;
+  if (!offer.bundleComplete) return false;
+  if (!strongVerification(offer.verification)) return false;
+  if (offer.shippingFee === undefined || offer.totalCashPrice === undefined) return false;
+  if (unavailable(offer.availability)) return false;
+  if (offer.identityVerdict !== undefined && offer.identityVerdict !== 'same_except_condition') return false;
+  if (offer.constraintStatus !== undefined && offer.constraintStatus !== 'eligible') return false;
+  return fieldVerificationSupportsDecision(offer);
+}
+
 function priceForBasis(offer: MarketOffer, basis: OfferPriceBasis, context: PurchaseContext): number | undefined {
-  if (basis === 'alternative_condition') return offer.condition === 'new' || offer.condition === 'unknown' ? undefined : offer.totalCashPrice;
-  if (!offer.eligible || (offer.condition !== 'new' && offer.condition !== 'unknown')) return undefined;
+  if (basis === 'alternative_condition') {
+    return isAlternativeConditionOffer(offer) ? offer.totalCashPrice : undefined;
+  }
+  if (!isDecisiveCashOffer(offer)) return undefined;
   if (basis === 'cash') return offer.totalCashPrice;
-  if (basis === 'owned_card') return ownedCard(offer.cardName, context) && offer.cardPrice !== undefined && offer.shippingFee !== undefined
-    ? offer.cardPrice + offer.shippingFee
+  if (basis === 'owned_card') return ownedCard(offer.cardName, context) && offer.cardPrice !== undefined
+    ? offer.cardPrice + (offer.shippingFee ?? 0)
     : undefined;
   if (basis === 'conditional_payment') {
     const conditional = offer.paymentPrice ?? offer.cardPrice;
-    return conditional !== undefined && offer.shippingFee !== undefined ? conditional + offer.shippingFee : undefined;
+    return conditional !== undefined ? conditional + (offer.shippingFee ?? 0) : undefined;
   }
   return offer.effectivePrice;
 }
