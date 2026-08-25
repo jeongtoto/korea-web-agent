@@ -33,6 +33,7 @@ test('resolves a query-only product when independent results agree on brand mode
   assert.equal(result.target.model?.toUpperCase(), 'V3');
   assert.match(result.target.variant ?? '', /43/);
   assert.ok(result.target.canonicalUrl);
+  assert.equal(result.canonicalIdentity?.primary.model, 'V3');
 });
 
 test('prefers a relay-eligible commerce product URL even when a matching blog result appears first', async () => {
@@ -118,6 +119,10 @@ test('preserves Naver Shopping Live liveId while enriching a live-view URL with 
   assert.equal(result.target.liveId, '1985890');
   assert.equal(result.target.canonicalUrl, 'https://view.shoppinglive.naver.com/lives/1985890');
   assert.equal(result.target.sourceHost, 'view.shoppinglive.naver.com');
+  assert.equal(result.canonicalIdentity?.primary.model, 'QWGE43UT1');
+  assert.deepEqual(result.canonicalIdentity?.requiredComponents.map((item) => [item.model, item.version]), [
+    ['EKWBYME78W', 'V3'],
+  ]);
 });
 
 test('preserves explicit live-query identity when discovery returns only the generic broadcast title', async () => {
@@ -142,6 +147,11 @@ test('preserves explicit live-query identity when discovery returns only the gen
   assert.match(result.target.name ?? '', /V3/i);
   assert.equal(result.target.liveId, '1985890');
   assert.equal(result.target.canonicalUrl, liveUrl);
+  assert.equal(result.canonicalIdentity?.primary.model, 'QWGE43UT1');
+  assert.equal(result.canonicalIdentity?.primary.size, '43');
+  assert.deepEqual(result.canonicalIdentity?.requiredComponents.map((item) => [item.model, item.version]), [
+    ['EKWBYME78W', 'V3'],
+  ]);
 });
 
 test('refuses to resolve when top candidates are too close', async () => {
@@ -158,4 +168,5 @@ test('refuses to resolve when top candidates are too close', async () => {
   assert.equal(result.ambiguous, true);
   assert.equal(result.target.kind, 'unknown');
   assert.ok(result.candidates.length >= 2);
+  assert.equal(result.canonicalIdentity, undefined);
 });
