@@ -250,6 +250,32 @@ export interface MarketCoverage {
   message?: string;
 }
 
+export type ProviderFailureKind =
+  | 'captcha'
+  | 'login_required'
+  | 'rate_limited'
+  | 'network_transient'
+  | 'blocked_by_site'
+  | 'not_found'
+  | 'region_required'
+  | 'stock_check_required'
+  | 'parse_failed'
+  | 'relay_offline'
+  | 'unknown';
+
+export interface ProviderAttempt {
+  market: string;
+  attemptedAt: string;
+  completedAt?: string;
+  discovery: { attempted: boolean; hitCount: number };
+  identity: { exact: number; uncertain: number; different: number };
+  verification: { attempted: number; succeeded: number; failed: number };
+  offers: { extracted: number; eligible: number };
+  failureKind?: ProviderFailureKind;
+  failureMessage?: string;
+  status: MarketCoverage['status'];
+}
+
 export interface RecommendationScores {
   fit: number;
   quality: number;
