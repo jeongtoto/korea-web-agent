@@ -180,6 +180,37 @@ export interface PurchaseContext {
   preferences?: string[];
 }
 
+export interface PurchaseContextApplied {
+  ownedCards: string[];
+  paymentMethods: string[];
+  memberships: string[];
+  budget?: number;
+  region?: string;
+  preferences: string[];
+}
+
+export type ReliabilityIssueSeverity = 'blocker' | 'warning';
+export type ReliabilityIssueCode =
+  | 'IDENTITY_INCOMPLETE_IN_WINNER'
+  | 'HARD_CONSTRAINT_UNKNOWN_IN_WINNER'
+  | 'HARD_CONSTRAINT_FAILED_IN_WINNER'
+  | 'SEARCH_METADATA_AS_DECISIVE'
+  | 'UNKNOWN_SHIPPING_IN_WINNER'
+  | 'ALTERNATIVE_SKU_MISMATCH'
+  | 'PERSONALIZED_IDENTITY_MISMATCH'
+  | 'HISTORY_IDENTITY_MISMATCH'
+  | 'UNOWNED_CARD_IN_OWNED_RANKING'
+  | 'POINTS_AS_CASH'
+  | 'EXPIRED_PROMOTION'
+  | 'MARKET_COVERAGE_INCONSISTENT'
+  | 'PURCHASE_CONTEXT_NOT_APPLIED';
+
+export interface ReliabilityIssue {
+  code: ReliabilityIssueCode;
+  severity: ReliabilityIssueSeverity;
+  message: string;
+}
+
 export type OfferCondition = 'new' | 'refurbished' | 'open_box' | 'display' | 'used' | 'unknown';
 export type OfferVerification = 'checkout_verified' | 'page_verified' | 'search_metadata' | 'unverified';
 export type OfferPriceBasis = 'cash' | 'owned_card' | 'conditional_payment' | 'effective' | 'alternative_condition';
@@ -445,6 +476,8 @@ export interface ProductReport {
   membershipScenarios?: MembershipScenariosReport;
   eventWindow?: EventWindowReport;
   standardPriceRows?: StandardPriceRowReport[];
+  purchaseContextApplied?: PurchaseContextApplied;
+  validationWarnings?: ReliabilityIssue[];
 }
 
 export type ResearchJobStatus = 'queued' | 'running' | 'completed' | 'partial' | 'failed';
