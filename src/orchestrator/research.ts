@@ -1,11 +1,16 @@
+import { compileCanonicalIdentity } from '../core/canonical-identity.ts';
+import { compileProductConstraints } from '../core/constraints.ts';
 import { normalizeEvidence } from '../core/evidence.ts';
 import { matchEvidenceToProduct } from '../core/product-match.ts';
+import { deriveMarketCoverage } from '../core/provider-attempt.ts';
 import { deriveExplicitSearchSignals } from '../core/search-signals.ts';
 import { withRetry } from '../core/retry.ts';
 import type {
   EvidenceItem,
+  MarketOffer,
   NormalizedTarget,
   PriceSnapshot,
+  ProviderAttempt,
   ResearchContext,
   ResearchJob,
   ResearchRequest,
@@ -22,6 +27,7 @@ import { toRelayProductHint, type RelayProductHint } from '../relay/protocol.ts'
 import { buildSourcePlan, shouldUseAcademicResearch, type SourceQuery } from '../providers/source-plan.ts';
 import { buildMarketOffer, rankMarketOffers } from '../core/offer-engine.ts';
 import { buildRecommendations } from '../core/recommendation-engine.ts';
+import { researchProviderSource } from './provider-pipeline.ts';
 
 export interface RelayClient {
   isAvailable(): Promise<boolean>;
@@ -151,6 +157,13 @@ function searchHitEvidence(
     const marketOffer = evidenceClass === 'retailer_listing'
       ? buildMarketOffer(hit, target, retrievedAt)
       : null;
+    if (marketOffer) {
+      marketOffer.verification = 'search_metadata';
+      marketOffer.eligible = false;
+      if (!marketOffer.exclusionReasons.includes('search_metadata_requires_page_verification')) {
+        marketOffer.exclusionReasons.push('search_metadata_requires_page_verification');
+      }
+    }
     return {
       claim: [hit.title, hit.snippet].filter(Boolean).join(' — '),
       sourceUrl: hit.url,
@@ -161,7 +174,7 @@ function searchHitEvidence(
       independenceKey: `search:${hit.url}`,
       confidence,
       specificity,
-      notes: `Identity match: ${match.level} (${match.score.toFixed(2)}). Search metadata is weaker than direct retrieval; source class is derived from the actual result host/source family, and sentiment/price signals are recorded only when explicit wording is present.`,
+      notes: `Identity match: ${match.level} (${match.score.toFixed(2)}). Search metadata is discovery-only for decisive shopping ranking; direct page verification is required.`,
       data: { identityMatch: match.level, identityMatchScore: match.score, ...signals, ...(marketOffer ? { marketOffer } : {}) },
     };
   }
@@ -249,6 +262,27 @@ function relayEvidence(url: string, price: PriceSnapshot, retrievedAt: string): 
   };
 }
 
+function retailerSource(source: SourceQuery): boolean {
+  return source.evidenceClass === 'retailer_listing' && source.specificity === 'exact_product';
+}
+
+function deduplicateOffers(offers: MarketOffer[]): MarketOffer[] {
+  const byUrl = new Map<string, MarketOffer>();
+  for (const offer of offers) {
+    const current = byUrl.get(offer.url);
+    if (!current) {
+      byUrl.set(offer.url, offer);
+      continue;
+    }
+    const verificationRank = (value: MarketOffer) => value.verification === 'checkout_verified' ? 3 : value.verification === 'page_verified' ? 2 : value.verification === 'search_metadata' ? 1 : 0;
+    if (Number(offer.eligible) > Number(current.eligible)
+      || (offer.eligible === current.eligible && verificationRank(offer) > verificationRank(current))) {
+      byUrl.set(offer.url, offer);
+    }
+  }
+  return [...byUrl.values()];
+}
+
 export async function runResearch(
   request: ResearchRequest,
   deps: ResearchDependencies = createDefaultResearchDependencies(),
@@ -259,8 +293,13 @@ export async function runResearch(
 
   const createdAt = timestamp(deps);
   let target = context.resolvedTarget ? { ...context.resolvedTarget } : targetFromRequest(request);
+  const initialCanonical = context.canonicalIdentity
+    ?? (target.kind === 'product' ? compileCanonicalIdentity(target, question) : undefined);
+  const constraints = compileProductConstraints(question);
   const evidence: EvidenceItem[] = [];
   const sourceResults: ResearchSourceResult[] = [];
+  const providerAttempts: ProviderAttempt[] = [];
+  const pipelineOffers: MarketOffer[] = [];
   const errors: string[] = [];
   let personalizedPrice: PriceSnapshot | undefined;
 
@@ -285,11 +324,30 @@ export async function runResearch(
     }
   }
 
+  const canonicalIdentity = initialCanonical
+    ?? (target.kind === 'product' ? compileCanonicalIdentity(target, question) : undefined);
   const sourcePlan = buildSourcePlan(target, request.question);
   if (sourcePlan.length) {
     const searchOutcomes = await Promise.all(sourcePlan.map(async (source) => {
       const startedAt = timestamp(deps);
       const sourceName = source.id === 'general' ? 'public_search' : source.id;
+      if (retailerSource(source) && canonicalIdentity) {
+        try {
+          const provider = await researchProviderSource({
+            source,
+            target,
+            canonicalIdentity,
+            constraints,
+            publicSearch: deps.publicSearch,
+            directPage: deps.directPage,
+            now: deps.now,
+          });
+          return { sourceName, startedAt, provider } as const;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return { sourceName, startedAt, searchEvidence: [] as EvidenceItem[], error: message } as const;
+        }
+      }
       try {
         const { value: hits } = await withRetry(() => deps.publicSearch(source.query));
         const searchEvidence = hits
@@ -304,7 +362,17 @@ export async function runResearch(
     }));
 
     for (const outcome of searchOutcomes) {
-      if (outcome.error) {
+      if ('provider' in outcome) {
+        providerAttempts.push(outcome.provider.attempt);
+        pipelineOffers.push(...outcome.provider.offers);
+        evidence.push(...outcome.provider.evidence);
+        const failed = outcome.provider.attempt.status === 'failed';
+        const message = failed
+          ? outcome.provider.attempt.failureMessage ?? outcome.provider.attempt.failureKind ?? 'provider failed'
+          : undefined;
+        if (message) errors.push(`${outcome.sourceName}: ${message}`);
+        sourceResults.push(sourceResult(outcome.sourceName, !failed, outcome.startedAt, timestamp(deps), outcome.provider.evidence, message));
+      } else if (outcome.error) {
         errors.push(`${outcome.sourceName}: ${outcome.error}`);
         sourceResults.push(sourceResult(outcome.sourceName, false, outcome.startedAt, timestamp(deps), [], outcome.error));
       } else {
@@ -375,7 +443,13 @@ export async function runResearch(
     relay,
     errors,
   };
-  if (Object.keys(context).length) job.researchContext = { ...context, resolvedTarget: { ...target } };
+  if (Object.keys(context).length || canonicalIdentity) {
+    job.researchContext = {
+      ...context,
+      resolvedTarget: { ...target },
+      ...(canonicalIdentity ? { canonicalIdentity } : {}),
+    };
+  }
 
   if (target.kind === 'product' || request.url) {
     job.report = buildProductReport({
@@ -385,9 +459,9 @@ export async function runResearch(
       ...(context.intent ? { intent: context.intent } : {}),
       ...(context.identityConfidence !== undefined ? { identityConfidence: context.identityConfidence } : {}),
     });
-    const discoveredOffers = normalized.flatMap((item) => {
+    const evidenceOffers = normalized.flatMap((item) => {
       const value = item.data?.marketOffer;
-      if (value && typeof value === 'object' && !Array.isArray(value)) return [value as import('../core/types.ts').MarketOffer];
+      if (value && typeof value === 'object' && !Array.isArray(value)) return [value as MarketOffer];
       if (item.specificity !== 'exact_product' || !item.data?.product || typeof item.data.product !== 'object') return [];
       const product = item.data.product as Record<string, unknown>;
       const rawOffers = product.offers;
@@ -402,9 +476,13 @@ export async function runResearch(
       }, target, item.retrievedAt);
       if (!built) return [];
       built.verification = ['structured_data', 'static_html'].includes(item.acquisitionMethod) ? 'page_verified' : 'search_metadata';
+      if (item.acquisitionMethod === 'search_metadata') {
+        built.eligible = false;
+        if (!built.exclusionReasons.includes('search_metadata_requires_page_verification')) built.exclusionReasons.push('search_metadata_requires_page_verification');
+      }
       return [built];
     });
-    const deduplicatedOffers = [...new Map(discoveredOffers.map((offer) => [offer.url, offer])).values()]
+    const deduplicatedOffers = deduplicateOffers([...evidenceOffers, ...pipelineOffers])
       .sort((a, b) => Number(b.eligible) - Number(a.eligible)
         || Math.min(a.cardPrice ?? Infinity, a.paymentPrice ?? Infinity, a.totalCashPrice ?? Infinity, a.effectivePrice ?? Infinity)
           - Math.min(b.cardPrice ?? Infinity, b.paymentPrice ?? Infinity, b.totalCashPrice ?? Infinity, b.effectivePrice ?? Infinity)
@@ -421,26 +499,30 @@ export async function runResearch(
       job.report.offers = offers;
       job.report.bestOffers = bestOffers;
     }
-    job.report.marketCoverage = sourcePlan
-      .filter((source) => source.market || ['naver-shopping', 'coupang', 'danawa'].includes(source.id))
-      .map((source) => {
-        const result = sourceResults.find((item) => item.source === (source.id === 'general' ? 'public_search' : source.id));
-        const found = result?.evidence.filter((item) => item.data?.marketOffer).length ?? 0;
-        return {
-          market: source.market ?? source.sourceType,
-          attempted: Boolean(result),
-          found,
-          verified: 0,
-          status: !result ? 'not_attempted' as const : !result.success ? 'failed' as const : found ? 'found_unverified' as const : 'no_match' as const,
-          ...(!result?.success && result?.error ? { message: result.error } : {}),
-        };
-      });
+    if (providerAttempts.length) {
+      job.report.marketCoverage = deriveMarketCoverage(providerAttempts);
+    } else {
+      job.report.marketCoverage = sourcePlan
+        .filter((source) => source.market || ['naver-shopping', 'coupang', 'danawa'].includes(source.id))
+        .map((source) => {
+          const result = sourceResults.find((item) => item.source === (source.id === 'general' ? 'public_search' : source.id));
+          const found = result?.evidence.filter((item) => item.data?.marketOffer).length ?? 0;
+          return {
+            market: source.market ?? source.sourceType,
+            attempted: Boolean(result),
+            found,
+            verified: 0,
+            status: !result ? 'not_attempted' as const : !result.success ? 'failed' as const : found ? 'found_unverified' as const : 'no_match' as const,
+            ...(!result?.success && result?.error ? { message: result.error } : {}),
+          };
+        });
+    }
     const manualChecks: import('../core/types.ts').ManualCheck[] = [];
     const ownedCards = (request.purchaseContext?.ownedCards ?? []).map((card) => card.toLowerCase().replace(/\s+/g, ''));
     const conditionalCards = [...new Set(offers.map((offer) => offer.cardName).filter((value): value is string => Boolean(value)))];
     const unconfirmedCards = conditionalCards.filter((card) => {
-      const normalized = card.toLowerCase().replace(/\s+/g, '');
-      return !ownedCards.some((owned) => normalized.includes(owned) || owned.includes(normalized.replace(/카드$/, '')));
+      const normalizedCard = card.toLowerCase().replace(/\s+/g, '');
+      return !ownedCards.some((owned) => normalizedCard.includes(owned) || owned.includes(normalizedCard.replace(/카드$/, '')));
     });
     if (unconfirmedCards.length) manualChecks.push({ type: 'owned_card', message: `조건부 카드가 적용 여부 확인: ${unconfirmedCards.join(', ')}` });
     if (offers.some((offer) => offer.membershipPrice !== undefined) && !(request.purchaseContext?.memberships?.length)) {
