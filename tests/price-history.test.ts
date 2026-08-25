@@ -5,6 +5,7 @@ import {
   getPriceHistory,
   priceHistoryKey,
 } from '../src/cloud/price-history.ts';
+import { compileCanonicalIdentity } from '../src/core/canonical-identity.ts';
 import type { JsonKeyValueStore } from '../src/cloud/relay-state.ts';
 import type { NormalizedTarget } from '../src/core/types.ts';
 
@@ -23,9 +24,34 @@ const target: NormalizedTarget = {
   variant: 'EKWBYME78W (v 3)',
 };
 
-test('price history key uses normalized model and variant, never the raw title', () => {
+const canonicalV3 = compileCanonicalIdentity(
+  { kind: 'product', brand: '와이드뷰', model: 'QWGE43UT1', name: 'QWGE43UT1 + EKWBYME78W(V3) 43인치 패키지' },
+  'QWGE43UT1 + EKWBYME78W(V3) 43인치 신품 패키지',
+);
+const canonicalV2 = compileCanonicalIdentity(
+  { kind: 'product', brand: '와이드뷰', model: 'QWGE43UT1', name: 'QWGE43UT1 + EKWBYME78W(V2) 43인치 패키지' },
+  'QWGE43UT1 + EKWBYME78W(V2) 43인치 신품 패키지',
+);
+
+test('legacy price history key uses normalized model and variant, never the raw title', () => {
   assert.equal(priceHistoryKey(target), 'price:history:QWGE43UT1+EKWBYME78W(V3)');
   assert.equal(priceHistoryKey({ kind: 'product', name: '이름만 있는 상품' }), undefined);
+});
+
+test('canonical bundle key is stable across seller wording and separates V2 from V3', () => {
+  const sellerA: NormalizedTarget = {
+    kind: 'product', brand: '와이드뷰', model: 'QWGE43UT1', variant: '삼탠바이미 V3 세트', name: '화이트에디션 43인치',
+  };
+  const sellerB: NormalizedTarget = {
+    kind: 'product', brand: '와이드뷰', model: 'QWGE43UT1', variant: '43형 스탠드 포함', name: '이동형 TV 패키지',
+  };
+  const v3a = priceHistoryKey(sellerA, canonicalV3);
+  const v3b = priceHistoryKey(sellerB, canonicalV3);
+  const v2 = priceHistoryKey(sellerA, canonicalV2);
+
+  assert.equal(v3a, v3b);
+  assert.ok(v3a?.includes('EKWBYME78W@V3'));
+  assert.notEqual(v3a, v2);
 });
 
 test('appends public observations, deduplicates identical timestamps, and prunes older than 183 days', async () => {
@@ -66,6 +92,23 @@ test('appends public observations, deduplicates identical timestamps, and prunes
   assert.equal(history.position.minimum, 389000);
   assert.equal(history.position.maximum, 410000);
   assert.equal(history.position.sampleCount, 2);
+});
+
+test('canonical append and read share one series even when target seller wording differs', async () => {
+  const store = new MemoryStore();
+  const now = Date.parse('2026-08-24T09:00:00.000Z');
+  const firstTarget = { kind: 'product' as const, model: 'QWGE43UT1', variant: 'seller wording A' };
+  const secondTarget = { kind: 'product' as const, model: 'QWGE43UT1', variant: 'seller wording B' };
+
+  await appendPriceObservation(store, firstTarget, {
+    observedAt: '2026-08-01T09:00:00.000Z', cashPrice: 410000,
+  }, now, canonicalV3);
+  await appendPriceObservation(store, secondTarget, {
+    observedAt: '2026-08-24T09:00:00.000Z', cashPrice: 389000,
+  }, now, canonicalV3);
+
+  const history = await getPriceHistory(store, secondTarget, now, canonicalV3);
+  assert.deepEqual(history?.observations.map((item) => item.cashPrice), [410000, 389000]);
 });
 
 test('refuses to persist history when stable SKU identity is missing', async () => {
