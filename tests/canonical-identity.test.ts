@@ -16,6 +16,25 @@ test('compiles QWGE43UT1 + EKWBYME78W(V3) as a required-component bundle', () =>
   assert.equal(canonicalIdentityKey(identity), '와이드뷰:QWGE43UT1:43:EKWBYME78W@V3:NEW');
 });
 
+test('preserves a resolved bundle identity when a follow-up asks only for the current price', () => {
+  const identity = compileCanonicalIdentity(
+    {
+      kind: 'product',
+      brand: '와이드뷰',
+      model: 'QWGE43UT1',
+      variant: '43인치',
+      name: '와이드뷰 QWGE43UT1 + EKWBYME78W(V3) 43인치 이동형 패키지',
+    },
+    '현재 가격을 조사해줘',
+  );
+
+  assert.equal(identity.primary.model, 'QWGE43UT1');
+  assert.equal(identity.primary.size, '43');
+  assert.deepEqual(identity.requiredComponents.map((item) => ({ model: item.model, version: item.version })), [
+    { model: 'EKWBYME78W', version: 'V3' },
+  ]);
+});
+
 test('does not invent bundle components for body-only request', () => {
   const identity = compileCanonicalIdentity(
     { kind: 'product', model: 'QWGE43UT1' },
@@ -24,9 +43,13 @@ test('does not invent bundle components for body-only request', () => {
   assert.equal(identity.requiredComponents.length, 0);
 });
 
-test('explicit exclusion suppresses a stand component even when the request mentions a stand', () => {
+test('explicit exclusion suppresses a stand component even when the resolved name contains one', () => {
   const identity = compileCanonicalIdentity(
-    { kind: 'product', model: 'QWGE43UT1' },
+    {
+      kind: 'product',
+      model: 'QWGE43UT1',
+      name: 'QWGE43UT1 + EKWBYME78W(V3) 43인치 이동형 패키지',
+    },
     'QWGE43UT1 43인치 스탠드 별도 본체만 신품',
   );
   assert.equal(identity.primary.size, '43');
