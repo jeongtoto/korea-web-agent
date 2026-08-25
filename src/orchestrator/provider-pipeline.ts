@@ -369,7 +369,9 @@ function providerSource(provider: MarketProvider): SourceQuery {
     id: provider.id,
     query: '',
     sourceType: provider.id,
-    evidenceClass: provider.id === 'official' ? 'official_record' : 'retailer_listing',
+    // Discovery metadata is never authoritative official evidence. The official
+    // adapter verifies the resolved official host before an offer can be trusted.
+    evidenceClass: 'retailer_listing',
     specificity: 'exact_product',
     maxHits: provider.budget.discovery,
     market: provider.market,
