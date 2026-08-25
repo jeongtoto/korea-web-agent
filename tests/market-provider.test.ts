@@ -9,7 +9,7 @@ test('required market provider registry exposes approved 13-channel order and bu
     assert.fail('provider registry module should exist');
   }
 
-  assert.deepEqual(registry.listMarketProviders().map((provider: any) => provider.id), [
+  assert.deepEqual(registry.listMarketProviderDefinitions().map((provider: any) => provider.id), [
     'naver-shopping',
     'coupang',
     'danawa',
@@ -25,12 +25,12 @@ test('required market provider registry exposes approved 13-channel order and bu
     'toss-shopping',
   ]);
 
-  assert.deepEqual(registry.providerById('danawa')?.budget, {
+  assert.deepEqual(registry.providerDefinitionById('danawa')?.budget, {
     discovery: 5,
     verification: 2,
     sellerExpansion: 6,
   });
-  assert.deepEqual(registry.providerById('naver-shopping')?.budget, {
+  assert.deepEqual(registry.providerDefinitionById('naver-shopping')?.budget, {
     discovery: 8,
     verification: 5,
     sellerExpansion: 5,
