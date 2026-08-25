@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateProductReport } from '../src/core/response-validator.ts';
+import { applyProductReportValidation, validateProductReport } from '../src/core/response-validator.ts';
 import type { MarketOffer, ProductReport, ResearchRequest } from '../src/core/types.ts';
 
 function offer(overrides: Partial<MarketOffer> = {}): MarketOffer {
@@ -134,4 +134,32 @@ test('purchaseContextApplied cannot invent or restore user-specific context abse
   };
   const issues = validateProductReport(value, request());
   assert.ok(codes(issues).includes('PURCHASE_CONTEXT_NOT_APPLIED'));
+});
+
+test('applying validation downgrades unsafe BUY while preserving preliminary offers and evidence', () => {
+  const unsafe = offer({ verification: 'search_metadata', eligible: false });
+  const value = report();
+  value.evidence = [{
+    claim: '검색 결과에 389,000원으로 표시됨',
+    sourceUrl: unsafe.url,
+    sourceType: 'naver_shopping',
+    retrievedAt: unsafe.retrievedAt,
+    acquisitionMethod: 'search_metadata',
+    evidenceClass: 'retailer_listing',
+    independenceKey: 'search:naver',
+    confidence: 0.5,
+  }];
+  value.offers = [unsafe];
+  value.bestOffers = {
+    cash: { basis: 'cash', rank: 1, amount: 389000, offer: unsafe, reasons: [] },
+  };
+
+  const finalized = applyProductReportValidation(value, request());
+
+  assert.equal(finalized.decision, 'INSUFFICIENT');
+  assert.ok(finalized.confidence <= 0.49);
+  assert.deepEqual(finalized.offers, [unsafe]);
+  assert.equal(finalized.evidence.length, 1);
+  assert.ok((finalized as any).validationWarnings?.some((item: any) => item.code === 'SEARCH_METADATA_AS_DECISIVE'));
+  assert.ok(finalized.missingInformation.some((item) => /검증|validation|확인/i.test(item)));
 });
