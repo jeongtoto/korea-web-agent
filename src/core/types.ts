@@ -213,7 +213,41 @@ export interface ReliabilityIssue {
 
 export type OfferCondition = 'new' | 'refurbished' | 'open_box' | 'display' | 'used' | 'unknown';
 export type OfferVerification = 'checkout_verified' | 'page_verified' | 'search_metadata' | 'unverified';
-export type OfferPriceBasis = 'cash' | 'owned_card' | 'conditional_payment' | 'effective' | 'alternative_condition';
+export type OfferPriceBasis = 'cash' | 'owned_card' | 'conditional_payment' | 'public_conditional' | 'effective' | 'alternative_condition';
+
+export type ShippingStatus = 'free' | 'paid' | 'conditional_free' | 'unknown';
+
+export interface ShippingQuote {
+  status: ShippingStatus;
+  baseFee?: number;
+  threshold?: number;
+  verification: OfferVerification;
+  remoteAreaExtraUnknown?: boolean;
+}
+
+export type PromotionType = 'time_deal' | 'public_coupon' | 'instant_discount' | 'none';
+
+export interface PromotionState {
+  type: PromotionType;
+  startsAt?: string;
+  endsAt?: string;
+  active: boolean | 'unknown';
+  condition?: string;
+  accountRequired?: boolean;
+}
+
+export interface FieldProvenance {
+  sourceUrl: string;
+  method: AcquisitionMethod | OfferVerification;
+  verifiedAt: string;
+}
+
+export interface SellerInfo {
+  name?: string;
+  productId?: string;
+  canonicalUrl?: string;
+  discoveredBy?: string[];
+}
 
 export interface MarketOffer {
   id: string;
@@ -236,6 +270,7 @@ export interface MarketOffer {
     payment?: OfferVerification;
   };
   seller?: string;
+  sellerInfo?: SellerInfo;
   bundleItems?: string[];
   listPrice?: number;
   salePrice?: number;
@@ -247,7 +282,16 @@ export interface MarketOffer {
   paymentMethod?: string;
   points?: number;
   shippingFee?: number;
+  shipping?: ShippingQuote;
   installationFee?: number;
+  mandatoryFees?: number[];
+  promotion?: PromotionState;
+  provenance?: {
+    identity?: FieldProvenance;
+    price?: FieldProvenance;
+    shipping?: FieldProvenance;
+    availability?: FieldProvenance;
+  };
   totalCashPrice?: number;
   effectivePrice?: number;
   availability?: string;
@@ -276,6 +320,7 @@ export interface BestOffers {
   cash?: RankedOffer;
   ownedCard?: RankedOffer;
   conditionalPayment?: RankedOffer;
+  publicConditional?: RankedOffer;
   effective?: RankedOffer;
   alternativeCondition?: RankedOffer;
 }
