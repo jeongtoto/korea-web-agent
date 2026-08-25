@@ -397,7 +397,7 @@ function canUseLegacyFallback(kind: ReturnType<typeof providerFailureKind>): boo
 function alternativeVerified(offer: MarketOffer): boolean {
   return offer.identityVerdict === 'same_except_condition'
     && offer.constraintStatus === 'eligible'
-    && (offer.shippingFee !== undefined || (offer.shipping && offer.shipping.status !== 'unknown'))
+    && (offer.shippingFee !== undefined || Boolean(offer.shipping && offer.shipping.status !== 'unknown'))
     && !unavailable(offer.availability);
 }
 
