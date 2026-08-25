@@ -12,7 +12,7 @@ export interface ShoppingPresentation {
 
 export interface ShoppingPresentationContext {
   canonicalIdentity?: CanonicalProductIdentity;
-  fallbackName?: string;
+  fallbackName?: string | undefined;
   relay: RelayStatus;
 }
 
