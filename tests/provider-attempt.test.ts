@@ -78,4 +78,5 @@ test('semantic provider failure mapping distinguishes login, block, transient, p
   assert.equal(providerFailureKind(new Error('store stock check required')), 'stock_check_required');
   assert.equal(providerFailureKind(new Error('404 not found')), 'not_found');
   assert.equal(providerFailureKind(new Error('captcha challenge')), 'captcha');
+  assert.equal(providerFailureKind(new Error('provider returned an unfamiliar failure')), 'unknown');
 });
