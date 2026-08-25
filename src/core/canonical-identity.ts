@@ -6,7 +6,7 @@ import type {
 } from './types.ts';
 
 const MODEL_TOKEN_RE = /\b[A-Z]{2,}[A-Z0-9_-]*\d[A-Z0-9_-]*\b/gi;
-const SIZE_RE = /\b(\d{2,3}(?:\.\d+)?)\s*(?:인치|inch|형)\b/i;
+const SIZE_RE = /(?:^|[^0-9])(\d{2,3}(?:\.\d+)?)\s*(?:인치|inch|형)(?=$|[^0-9a-z])/i;
 const VERSION_RE = /\b(V\d+(?:\.\d+)?)\b/i;
 
 function compact(value: string | undefined): string {
