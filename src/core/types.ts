@@ -196,6 +196,14 @@ export interface MarketOffer {
   identityScore: number;
   bundleComplete: boolean;
   eligible: boolean;
+  identityVerdict?: IdentityVerdict;
+  constraintStatus?: 'eligible' | 'preliminary' | 'excluded';
+  fieldVerification?: {
+    identity: OfferVerification;
+    price: OfferVerification;
+    shipping: OfferVerification;
+    payment?: OfferVerification;
+  };
   seller?: string;
   bundleItems?: string[];
   listPrice?: number;
