@@ -1,7 +1,6 @@
 import {
   compileProductConstraints,
   constraintEligibility,
-  constraintFactsFromText,
   evaluateProductConstraints,
 } from './constraints.ts';
 import type { MarketOffer, ProductCandidate, ProductRecommendation, PurchaseContext } from './types.ts';
@@ -76,7 +75,7 @@ export function buildRecommendations(input: {
   const limit = Math.max(1, Math.min(input.limit ?? 3, 5));
   const constraints = compileProductConstraints(input.question);
   const scored = input.candidates.flatMap((candidate) => {
-    const evaluations = evaluateProductConstraints(constraints, constraintFactsFromText(candidate.title));
+    const evaluations = evaluateProductConstraints(constraints, candidate.verifiedFacts ?? {});
     const eligibility = constraintEligibility(evaluations);
     if (eligibility === 'excluded') return [];
     const recommendation = scoreCandidate(input.question, candidate, input.offers ?? [], input.purchaseContext ?? {});
