@@ -1,8 +1,9 @@
-import type { RelayCandidate, ResearchJob, ResearchRequest } from '../core/types.ts';
-import { toRelayProductHint } from '../relay/protocol.ts';
-import type { RelayTarget } from '../relay/protocol.ts';
+import { isDecisiveCashOffer } from '../core/offer-engine.ts';
 import { assertPublicUrl, isRelayDomainAllowed } from '../core/policy.ts';
+import type { RelayCandidate, ResearchJob, ResearchRequest } from '../core/types.ts';
 import { enrichShoppingReport } from '../report/shopping-intelligence-report.ts';
+import { toRelayProductHint } from '../relay/protocol.ts';
+import type { RelayProductHint, RelayTarget } from '../relay/protocol.ts';
 import { appendPriceObservation } from './price-history.ts';
 import {
   getPersistentRelayStatus,
@@ -27,19 +28,17 @@ async function attachPublicShoppingIntelligence(
   enrichShoppingReport(job.report, job.updatedAt);
 
   const cashWinner = job.report.bestOffers?.cash;
-  const fallbackCash = job.report.price?.cashPaymentPrice;
-  const cashPrice = cashWinner?.amount ?? fallbackCash;
-  if (cashPrice !== undefined && Number.isFinite(cashPrice) && cashPrice > 0) {
-    const observedAt = cashWinner?.offer.retrievedAt ?? job.updatedAt;
-    const sourceUrl = cashWinner?.offer.url ?? job.report.price?.sourceUrl;
-    const market = cashWinner?.offer.market;
-    const history = await appendPriceObservation(store, job.target, {
-      observedAt,
-      cashPrice,
-      ...(sourceUrl ? { sourceUrl } : {}),
-      ...(market ? { market } : {}),
-    }, nowMs);
-    if (history) job.report.priceHistory = history;
+  if (cashWinner && isDecisiveCashOffer(cashWinner.offer)) {
+    const cashPrice = cashWinner.amount;
+    if (Number.isFinite(cashPrice) && cashPrice > 0) {
+      const history = await appendPriceObservation(store, job.target, {
+        observedAt: cashWinner.offer.retrievedAt,
+        cashPrice,
+        sourceUrl: cashWinner.offer.url,
+        market: cashWinner.offer.market,
+      }, nowMs, job.researchContext?.canonicalIdentity);
+      if (history) job.report.priceHistory = history;
+    }
   }
   return job;
 }
@@ -104,10 +103,22 @@ export async function runCloudResearch(request: ResearchRequest, options: CloudR
   await saveResearchJob(options.store, waiting);
 
   try {
-    const targetHint = toRelayProductHint(waiting.researchContext?.resolvedTarget ?? waiting.target);
+    const recommendationMode = Boolean(waiting.researchContext?.recommendationMode);
+    const canonicalIdentity = recommendationMode ? undefined : waiting.researchContext?.canonicalIdentity;
+    const targetHint = toRelayProductHint(
+      waiting.researchContext?.resolvedTarget ?? waiting.target,
+      canonicalIdentity,
+    );
     const discovered = (job.report?.offers ?? [])
       .filter((offer) => {
-        try { return offer.eligible && isRelayDomainAllowed(assertPublicUrl(offer.url).hostname); } catch { return false; }
+        try {
+          const exactEnough = !canonicalIdentity || offer.identityVerdict === 'exact';
+          return offer.eligible
+            && exactEnough
+            && isRelayDomainAllowed(assertPublicUrl(offer.url).hostname);
+        } catch {
+          return false;
+        }
       })
       .sort((a, b) => Math.min(a.cardPrice ?? Infinity, a.paymentPrice ?? Infinity, a.totalCashPrice ?? Infinity, a.effectivePrice ?? Infinity)
         - Math.min(b.cardPrice ?? Infinity, b.paymentPrice ?? Infinity, b.totalCashPrice ?? Infinity, b.effectivePrice ?? Infinity))
@@ -116,7 +127,12 @@ export async function runCloudResearch(request: ResearchRequest, options: CloudR
       .filter((candidate, index, values) => values.findIndex((value) => value.url === candidate.url) === index)
       .slice(0, 8);
     const targets: RelayTarget[] = uniqueCandidates.map((candidate) => {
-      const hint = candidate.targetHint as import('../relay/protocol.ts').RelayProductHint | undefined ?? targetHint;
+      const candidateHint = candidate.targetHint as RelayProductHint | undefined;
+      const hint = candidateHint
+        ? recommendationMode
+          ? candidateHint
+          : { ...(targetHint ?? {}), ...candidateHint }
+        : targetHint;
       return { url: candidate.url, market: candidate.market, ...(hint ? { targetHint: hint } : {}) };
     });
     await queuePersistentRelay(options.store, waiting.id, request.url!, options.relaySecret!, nowMs(), 5 * 60_000, targetHint, targets);

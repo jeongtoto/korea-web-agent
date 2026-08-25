@@ -7,13 +7,29 @@ export interface StructuredOffer {
   price?: number;
   currency?: string;
   availability?: string;
+  shippingFee?: number;
 }
 
 export interface StructuredProduct {
   name?: string;
   brand?: string;
   sku?: string;
+  model?: string;
+  description?: string;
+  attributes?: Record<string, string | number | boolean>;
   offers?: StructuredOffer;
+}
+
+export interface DirectProductFacts {
+  name?: string;
+  brand?: string;
+  sku?: string;
+  model?: string;
+  description?: string;
+  price?: number;
+  availability?: string;
+  shippingFee?: number;
+  attributes?: Record<string, string | number | boolean>;
 }
 
 export interface DirectPageResult {
@@ -22,6 +38,7 @@ export interface DirectPageResult {
   description?: string;
   siteName?: string;
   product?: StructuredProduct;
+  facts?: DirectProductFacts;
   evidence: EvidenceItem[];
 }
 
@@ -101,10 +118,55 @@ function stringValue(value: unknown): string | undefined {
 function numericPrice(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
-    const parsed = Number(value.replace(/,/g, '').trim());
+    const parsed = Number(value.replace(/,/g, '').replace(/[^0-9.-]/g, '').trim());
     if (Number.isFinite(parsed)) return parsed;
   }
   return undefined;
+}
+
+function shippingFeeFromOffer(offer: Record<string, unknown>): number | undefined {
+  const detailsRaw = Array.isArray(offer.shippingDetails) ? offer.shippingDetails[0] : offer.shippingDetails;
+  if (!detailsRaw || typeof detailsRaw !== 'object') return undefined;
+  const details = detailsRaw as Record<string, unknown>;
+  const rateRaw = details.shippingRate;
+  if (typeof rateRaw === 'number' || typeof rateRaw === 'string') return numericPrice(rateRaw);
+  if (!rateRaw || typeof rateRaw !== 'object') return undefined;
+  return numericPrice((rateRaw as Record<string, unknown>).value);
+}
+
+function booleanFromValue(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return undefined;
+  if (/(있음|포함|yes|true|지원)/i.test(value)) return true;
+  if (/(없음|미포함|no|false|미지원)/i.test(value)) return false;
+  return undefined;
+}
+
+function normalizeAdditionalProperties(value: unknown): Record<string, string | number | boolean> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const attributes: Record<string, string | number | boolean> = {};
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const property = item as Record<string, unknown>;
+    const name = stringValue(property.name ?? property.propertyID);
+    const raw = property.value;
+    if (!name || raw === undefined || raw === null) continue;
+    const valueText = typeof raw === 'string' ? raw : String(raw);
+    const number = numericPrice(raw);
+    if (/(폭|너비|width)/i.test(name) && number !== undefined) attributes.supportedWidthMm = number;
+    else if (/(길이|length|깊이)/i.test(name) && number !== undefined) attributes.supportedLengthMm = number;
+    else if (/서랍/i.test(name)) {
+      const bool = booleanFromValue(raw);
+      if (bool !== undefined) attributes.drawerStorage = bool;
+    } else if (/(헤드|headboard)/i.test(name)) {
+      if (/무헤드|headless/i.test(valueText)) attributes.headboardStyle = 'headless';
+      else if (/소파/i.test(valueText)) attributes.headboardStyle = 'sofa';
+      else attributes[name] = valueText;
+    } else if (typeof raw === 'boolean' || typeof raw === 'number' || typeof raw === 'string') {
+      attributes[name] = raw;
+    }
+  }
+  return Object.keys(attributes).length ? attributes : undefined;
 }
 
 function parseProduct(html: string): StructuredProduct | undefined {
@@ -122,24 +184,47 @@ function parseProduct(html: string): StructuredProduct | undefined {
         const price = numericPrice(offer.price ?? offer.lowPrice);
         const currency = stringValue(offer.priceCurrency);
         const availability = stringValue(offer.availability);
-        if (price !== undefined || currency || availability) {
+        const shippingFee = shippingFeeFromOffer(offer);
+        if (price !== undefined || currency || availability || shippingFee !== undefined) {
           offers = {};
           if (price !== undefined) offers.price = price;
           if (currency) offers.currency = currency;
           if (availability) offers.availability = availability;
+          if (shippingFee !== undefined) offers.shippingFee = shippingFee;
         }
       }
       const product: StructuredProduct = {};
       const name = stringValue(object.name);
       const sku = stringValue(object.sku);
+      const model = stringValue(object.model ?? object.mpn);
+      const description = stringValue(object.description);
+      const attributes = normalizeAdditionalProperties(object.additionalProperty);
       if (name) product.name = name;
       if (brand) product.brand = brand;
       if (sku) product.sku = sku;
+      if (model) product.model = model;
+      if (description) product.description = description;
+      if (attributes) product.attributes = attributes;
       if (offers) product.offers = offers;
       return product;
     }
   }
   return undefined;
+}
+
+function productFacts(product: StructuredProduct | undefined): DirectProductFacts | undefined {
+  if (!product) return undefined;
+  const facts: DirectProductFacts = {};
+  if (product.name) facts.name = product.name;
+  if (product.brand) facts.brand = product.brand;
+  if (product.sku) facts.sku = product.sku;
+  if (product.model) facts.model = product.model;
+  if (product.description) facts.description = product.description;
+  if (product.offers?.price !== undefined) facts.price = product.offers.price;
+  if (product.offers?.availability) facts.availability = product.offers.availability;
+  if (product.offers?.shippingFee !== undefined) facts.shippingFee = product.offers.shippingFee;
+  if (product.attributes) facts.attributes = { ...product.attributes };
+  return Object.keys(facts).length ? facts : undefined;
 }
 
 async function fetchWithSafeRedirects(input: URL, fetchImpl: typeof fetch, maxRedirects = 5): Promise<{ response: Response; url: URL }> {
@@ -177,6 +262,7 @@ export async function fetchDirectPage(input: string, fetchImpl: typeof fetch = f
   const description = metaContent(html, 'name', 'description') ?? metaContent(html, 'property', 'og:description');
   const siteName = metaContent(html, 'property', 'og:site_name');
   const product = parseProduct(html);
+  const facts = productFacts(product);
   const retrievedAt = new Date().toISOString();
   const evidence: EvidenceItem[] = [];
 
@@ -199,7 +285,9 @@ export async function fetchDirectPage(input: string, fetchImpl: typeof fetch = f
       product.name ? `상품명: ${product.name}` : undefined,
       product.brand ? `브랜드: ${product.brand}` : undefined,
       product.sku ? `SKU: ${product.sku}` : undefined,
+      product.model ? `모델: ${product.model}` : undefined,
       product.offers?.price !== undefined ? `가격: ${product.offers.price}${product.offers.currency ? ` ${product.offers.currency}` : ''}` : undefined,
+      product.offers?.shippingFee !== undefined ? `배송비: ${product.offers.shippingFee}` : undefined,
     ].filter(Boolean);
     evidence.push({
       claim: structuredBits.join(' / '),
@@ -211,7 +299,7 @@ export async function fetchDirectPage(input: string, fetchImpl: typeof fetch = f
       independenceKey: `${url.hostname}${url.pathname}:jsonld-product`,
       confidence: 0.78,
       specificity: 'exact_product',
-      data: { product },
+      data: { product, ...(facts ? { facts } : {}) },
     });
   }
 
@@ -220,5 +308,6 @@ export async function fetchDirectPage(input: string, fetchImpl: typeof fetch = f
   if (description) result.description = description;
   if (siteName) result.siteName = siteName;
   if (product) result.product = product;
+  if (facts) result.facts = facts;
   return result;
 }

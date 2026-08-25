@@ -54,6 +54,27 @@ test('orchestrator combines direct URL evidence with related public search and i
   assert.ok(job.report);
 });
 
+test('direct-page enrichment is included before canonical identity is finalized', async () => {
+  const page: DirectPageResult = {
+    url,
+    title: '밀도 BED-K-01 원목 수납침대 K',
+    product: {
+      name: '밀도 BED-K-01 원목 수납침대 K',
+      brand: '밀도',
+      sku: 'BED-K-01',
+      offers: { price: 439000, currency: 'KRW', shippingFee: 0 },
+    },
+    evidence: [],
+  };
+  const job = await runResearch({ question: '이 침대 어때?', url }, deps({
+    directPage: async () => page,
+    publicSearch: async () => [],
+  }));
+
+  assert.equal(job.target.model, 'BED-K-01');
+  assert.equal(job.researchContext?.canonicalIdentity?.primary.model, 'BED-K-01');
+});
+
 test('provider failure degrades to a partial result instead of discarding successful evidence', async () => {
   const job = await runResearch({ question: '어때?', url }, deps({
     directPage: async () => { throw new Error('blocked'); },
@@ -144,7 +165,9 @@ test('exact-product snippets structure only explicit review sentiment, current p
   const price = job.evidence.find((item) => item.sourceUrl.includes('danawa.com'));
   assert.ok((review?.data?.sentiment as number | undefined) !== undefined);
   assert.ok((review?.data?.sentiment as number) > 0.3);
-  assert.equal(((price?.data?.product as any)?.offers?.price), 399000);
+  const preliminary = price?.data?.marketOffer as { salePrice?: number; eligible?: boolean } | undefined;
+  assert.equal(preliminary?.salePrice, 399000);
+  assert.equal(preliminary?.eligible, false);
   assert.ok((price?.data?.priceSignal as number) > 0);
 });
 
@@ -195,13 +218,13 @@ test('orchestrator adds dedicated Crossref-style academic evidence separately fr
   ));
 });
 
-test('orchestrator exposes multi-market winners without mixing card, points, and return prices', async () => {
+test('search-metadata-only multi-market prices remain visible but cannot win decisive rankings', async () => {
   const target = {
     kind: 'product' as const,
     brand: '와이드뷰',
     model: 'QWGE43UT1',
     variant: '43인치',
-    name: '와이드뷰 QWGE43UT1 EKWBYME78W V3 43인치 이동형 패키지',
+    name: '와이드뷰 QWGE43UT1 + EKWBYME78W(V3) 43인치 이동형 패키지',
   };
   const job = await runResearch({
     question: '동일 신품 패키지 최저가와 삼성카드가, 적립 체감가, 반품가를 따로 비교해줘',
@@ -214,16 +237,58 @@ test('orchestrator exposes multi-market winners without mixing card, points, and
       if (query.includes('리퍼 반품')) return [{ title: `${target.name} 반품`, url: 'https://www.coupang.com/vp/products/2', snippet: '반품 상품 296,140원 무료배송' }];
       return [];
     },
+    directPage: async () => { throw new Error('403 bot blocked by site policy'); },
     academicSearch: async () => [],
     relayClient: null,
     now: () => new Date('2026-08-24T00:00:00.000Z'),
     idFactory: () => 'multi-market',
   }), { resolvedTarget: target, identityConfidence: 0.96 });
 
+  const offers = job.report?.offers ?? [];
+  assert.ok(offers.some((offer) => offer.verification === 'search_metadata'));
+  assert.ok(offers.filter((offer) => offer.verification === 'search_metadata').every((offer) => offer.eligible === false));
+  assert.equal(job.report?.bestOffers?.cash, undefined);
+  assert.equal(job.report?.bestOffers?.ownedCard, undefined);
+  assert.equal(job.report?.bestOffers?.effective, undefined);
+  assert.equal(job.report?.bestOffers?.alternativeCondition, undefined);
+});
+
+test('page-verified exact retailer offer can win the decisive cash ranking', async () => {
+  const target = {
+    kind: 'product' as const,
+    brand: '와이드뷰',
+    model: 'QWGE43UT1',
+    variant: '43인치',
+    name: '와이드뷰 QWGE43UT1 + EKWBYME78W(V3) 43인치 이동형 패키지',
+  };
+  const pageUrl = 'https://kream.co.kr/products/verified-1';
+  const job = await runResearch({
+    question: '동일 신품 패키지 현재 최저가를 검증해줘',
+    category: 'product',
+  }, createDefaultResearchDependencies({
+    publicSearch: async (query) => query.includes('site:kream.co.kr') ? [{
+      title: `${target.name} 신품 407,200원`,
+      url: pageUrl,
+      snippet: '판매가 407,200원 무료배송',
+    }] : [],
+    directPage: async (requestedUrl) => ({
+      url: requestedUrl,
+      title: `${target.name} 신품`,
+      product: {
+        name: `${target.name} 신품`,
+        brand: '와이드뷰',
+        sku: 'QWGE43UT1',
+        offers: { price: 407200, currency: 'KRW', availability: 'InStock', shippingFee: 0 },
+      },
+      evidence: [],
+    }),
+    academicSearch: async () => [],
+    relayClient: null,
+    now: () => new Date('2026-08-24T00:00:00.000Z'),
+    idFactory: () => 'verified-market',
+  }), { resolvedTarget: target, identityConfidence: 0.96 });
+
   assert.equal(job.report?.bestOffers?.cash?.amount, 407200);
-  assert.equal(job.report?.bestOffers?.ownedCard?.amount, 390000);
-  assert.equal(job.report?.bestOffers?.effective?.amount, 392350);
-  assert.equal(job.report?.bestOffers?.alternativeCondition?.amount, 296140);
-  assert.ok((job.report?.marketCoverage?.length ?? 0) >= 10);
-  assert.ok(job.report?.manualChecks?.some((check) => check.type === 'used_condition'));
+  assert.equal(job.report?.bestOffers?.cash?.offer.verification, 'page_verified');
+  assert.ok(job.report?.marketCoverage?.some((coverage) => coverage.market === 'KREAM' && coverage.status === 'verified'));
 });

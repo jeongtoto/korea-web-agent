@@ -3,8 +3,14 @@ import assert from 'node:assert/strict';
 import { buildRecommendations } from '../src/core/recommendation-engine.ts';
 import type { ProductCandidate } from '../src/core/types.ts';
 
-function candidate(title: string, score = 0.85): ProductCandidate {
-  return { target: { kind: 'product', name: title }, title, score, sourceUrls: [`https://example.com/${encodeURIComponent(title)}`] };
+function candidate(title: string, score = 0.85, verifiedFacts?: Record<string, unknown>): ProductCandidate {
+  return {
+    target: { kind: 'product', name: title },
+    title,
+    score,
+    sourceUrls: [`https://example.com/${encodeURIComponent(title)}`],
+    ...(verifiedFacts ? { verifiedFacts } : {}),
+  };
 }
 
 test('returns Best 3 bedding choices using fit, design, care, review and value signals', () => {
@@ -31,4 +37,29 @@ test('marks weakly evidenced candidates preliminary instead of presenting certai
   assert.equal(result.length, 1);
   assert.equal(result[0]?.preliminary, true);
   assert.ok((result[0]?.confidence ?? 1) < 0.7);
+});
+
+test('title wording alone cannot satisfy hard constraints without verified facts', () => {
+  const result = buildRecommendations({
+    question: '1670×2075 매트리스가 실제로 올라가야 함. 서랍형 필수. 무헤드 또는 소파형 헤드만.',
+    candidates: [candidate('1700×2075 서랍형 소파형 완벽 호환 프레임 리뷰 4.9', 0.99)],
+  });
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.preliminary, true);
+});
+
+test('returns only hard-constraint verified frames when verified options exist instead of padding the shortlist', () => {
+  const result = buildRecommendations({
+    question: '1670×2075 매트리스가 실제로 올라가야 함. 서랍형 필수. 무헤드 또는 소파형 헤드만.',
+    limit: 5,
+    candidates: [
+      candidate('A 프레임 리뷰 4.8', 0.92, { supportedWidthMm: 1700, supportedLengthMm: 2075, drawerStorage: true, headboardStyle: 'sofa' }),
+      candidate('B 프레임 리뷰 4.7', 0.9, { supportedWidthMm: 1680, supportedLengthMm: 2100, drawerStorage: true, headboardStyle: 'headless' }),
+      candidate('C 프레임 1700×2075 서랍형 소파형 리뷰 4.9', 0.99),
+      candidate('D 프레임 리뷰 4.9', 0.99, { supportedWidthMm: 1700, supportedLengthMm: 2000, drawerStorage: true, headboardStyle: 'sofa' }),
+    ],
+  });
+
+  assert.equal(result.length, 2);
+  assert.deepEqual(result.map((item) => item.title.slice(0, 1)), ['A', 'B']);
 });

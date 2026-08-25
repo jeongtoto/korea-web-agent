@@ -1,4 +1,5 @@
 import { parseNaverProductUrl } from '../adapters/naver-product.ts';
+import { compileCanonicalIdentity } from '../core/canonical-identity.ts';
 import { matchEvidenceToProduct } from '../core/product-match.ts';
 import type { NormalizedTarget, ProductCandidate, ProductResolution, ResearchRequest } from '../core/types.ts';
 import type { SearchHit } from '../providers/index.ts';
@@ -159,6 +160,17 @@ function groupCandidates(seed: NormalizedTarget, query: string, hits: SearchHit[
     });
 }
 
+function resolvedWithCanonical(
+  resolution: Omit<ProductResolution, 'canonicalIdentity'>,
+  question: string,
+): ProductResolution {
+  if (resolution.target.kind !== 'product') return resolution;
+  return {
+    ...resolution,
+    canonicalIdentity: compileCanonicalIdentity(resolution.target, question),
+  };
+}
+
 async function enrichParsedProduct(
   parsed: NormalizedTarget,
   request: ResearchRequest,
@@ -168,13 +180,13 @@ async function enrichParsedProduct(
   const query = [parsed.brand, parsed.productId, cleanedQuestion].filter(Boolean).join(' ').trim();
   const baseConfidence = parsed.productId ? 0.8 : parsed.liveId ? 0.72 : 0.7;
   if (!query) {
-    return {
+    return resolvedWithCanonical({
       target: parsed,
       confidence: baseConfidence,
       ambiguous: false,
       candidates: [{ target: parsed, score: baseConfidence, sourceUrls: request.url ? [request.url] : [], title: parsed.productId ?? parsed.liveId ?? 'product' }],
       identityEvidence: request.url ? [{ title: parsed.productId ?? parsed.liveId ?? 'product', url: request.url, score: baseConfidence }] : [],
-    };
+    }, request.question);
   }
 
   let hits: SearchHit[] = [];
@@ -185,13 +197,13 @@ async function enrichParsedProduct(
     : candidates[0];
 
   if (!matching) {
-    return {
+    return resolvedWithCanonical({
       target: parsed,
       confidence: baseConfidence,
       ambiguous: false,
       candidates: [{ target: parsed, score: baseConfidence, sourceUrls: request.url ? [request.url] : [], title: parsed.productId ?? parsed.liveId ?? 'product' }],
       identityEvidence: hits.slice(0, 5).map((hit) => ({ title: hit.title, url: hit.url, score: 0.4 })),
-    };
+    }, request.question);
   }
 
   const target: NormalizedTarget = {
@@ -207,13 +219,13 @@ async function enrichParsedProduct(
     ...(parsed.canonicalUrl ? { canonicalUrl: parsed.canonicalUrl } : {}),
   };
   const confidence = Math.max(baseConfidence, Math.min(0.97, matching.score));
-  return {
+  return resolvedWithCanonical({
     target,
     confidence,
     ambiguous: false,
     candidates,
     identityEvidence: matching.sourceUrls.map((url) => ({ title: matching.title, url, score: matching.score })),
-  };
+  }, request.question);
 }
 
 export async function resolveProduct(
@@ -251,13 +263,14 @@ export async function resolveProduct(
   const strongSeed = Boolean(seed.brand && seed.model);
   const resolved = top.score >= 0.65 && (strongSeed || margin >= 0.12);
   const confidence = resolved ? top.score : Math.min(top.score, 0.64);
+  const target = resolved ? top.target : { kind: 'unknown' as const };
 
-  return {
-    target: resolved ? top.target : { kind: 'unknown' },
+  return resolvedWithCanonical({
+    target,
     confidence,
     ambiguous: !resolved,
     candidates,
     identityEvidence: candidates.slice(0, 5).flatMap((candidate) =>
       candidate.sourceUrls.map((url) => ({ title: candidate.title, url, score: candidate.score }))),
-  };
+  }, request.question);
 }

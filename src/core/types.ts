@@ -68,6 +68,66 @@ export interface NormalizedTarget {
   canonicalUrl?: string;
 }
 
+export interface CanonicalComponent {
+  type: string;
+  model?: string;
+  version?: string;
+  quantity?: number;
+  aliases?: string[];
+}
+
+export interface CanonicalProductIdentity {
+  kind: 'product';
+  brand?: string;
+  family?: string;
+  primary: {
+    model?: string;
+    size?: string;
+    generation?: string;
+    capacity?: string;
+    color?: string;
+  };
+  requiredComponents: CanonicalComponent[];
+  optionalComponents: CanonicalComponent[];
+  condition: OfferCondition | 'any';
+  domesticModel?: boolean;
+  installationType?: string;
+  source: {
+    question: string;
+    url?: string;
+    confidence: number;
+  };
+}
+
+export type IdentityVerdict = 'exact' | 'same_except_condition' | 'uncertain' | 'different';
+
+export interface CanonicalIdentityMatch {
+  verdict: IdentityVerdict;
+  matched: string[];
+  missing: string[];
+  conflicts: string[];
+  confidence: number;
+}
+
+export type RequirementStrength = 'hard' | 'soft';
+export type ConstraintVerification = 'verified_pass' | 'verified_fail' | 'unknown';
+
+export interface ProductConstraint {
+  id: string;
+  label: string;
+  strength: RequirementStrength;
+  kind: 'dimension_min' | 'boolean_required' | 'enum_allowed' | 'text_required';
+  field: string;
+  expected: string | number | boolean | string[];
+  source: 'user' | 'resolved_identity';
+}
+
+export interface ConstraintEvaluation {
+  constraint: ProductConstraint;
+  status: ConstraintVerification;
+  evidence?: string;
+}
+
 export interface ProductMatchResult {
   level: ProductMatchLevel;
   score: number;
@@ -80,6 +140,7 @@ export interface ProductCandidate {
   score: number;
   sourceUrls: string[];
   title: string;
+  verifiedFacts?: Record<string, unknown>;
 }
 
 export interface ProductResolution {
@@ -88,12 +149,14 @@ export interface ProductResolution {
   ambiguous: boolean;
   candidates: ProductCandidate[];
   identityEvidence: Array<{ title: string; url: string; score: number }>;
+  canonicalIdentity?: CanonicalProductIdentity;
 }
 
 export interface ResearchContext {
   intent?: ResearchIntent;
   identityConfidence?: number;
   resolvedTarget?: NormalizedTarget;
+  canonicalIdentity?: CanonicalProductIdentity;
   resolutionAmbiguous?: boolean;
   recommendationMode?: boolean;
   recommendationCandidates?: ProductCandidate[];
@@ -117,6 +180,37 @@ export interface PurchaseContext {
   preferences?: string[];
 }
 
+export interface PurchaseContextApplied {
+  ownedCards: string[];
+  paymentMethods: string[];
+  memberships: string[];
+  budget?: number;
+  region?: string;
+  preferences: string[];
+}
+
+export type ReliabilityIssueSeverity = 'blocker' | 'warning';
+export type ReliabilityIssueCode =
+  | 'IDENTITY_INCOMPLETE_IN_WINNER'
+  | 'HARD_CONSTRAINT_UNKNOWN_IN_WINNER'
+  | 'HARD_CONSTRAINT_FAILED_IN_WINNER'
+  | 'SEARCH_METADATA_AS_DECISIVE'
+  | 'UNKNOWN_SHIPPING_IN_WINNER'
+  | 'ALTERNATIVE_SKU_MISMATCH'
+  | 'PERSONALIZED_IDENTITY_MISMATCH'
+  | 'HISTORY_IDENTITY_MISMATCH'
+  | 'UNOWNED_CARD_IN_OWNED_RANKING'
+  | 'POINTS_AS_CASH'
+  | 'EXPIRED_PROMOTION'
+  | 'MARKET_COVERAGE_INCONSISTENT'
+  | 'PURCHASE_CONTEXT_NOT_APPLIED';
+
+export interface ReliabilityIssue {
+  code: ReliabilityIssueCode;
+  severity: ReliabilityIssueSeverity;
+  message: string;
+}
+
 export type OfferCondition = 'new' | 'refurbished' | 'open_box' | 'display' | 'used' | 'unknown';
 export type OfferVerification = 'checkout_verified' | 'page_verified' | 'search_metadata' | 'unverified';
 export type OfferPriceBasis = 'cash' | 'owned_card' | 'conditional_payment' | 'effective' | 'alternative_condition';
@@ -133,6 +227,14 @@ export interface MarketOffer {
   identityScore: number;
   bundleComplete: boolean;
   eligible: boolean;
+  identityVerdict?: IdentityVerdict;
+  constraintStatus?: 'eligible' | 'preliminary' | 'excluded';
+  fieldVerification?: {
+    identity: OfferVerification;
+    price: OfferVerification;
+    shipping: OfferVerification;
+    payment?: OfferVerification;
+  };
   seller?: string;
   bundleItems?: string[];
   listPrice?: number;
@@ -185,6 +287,32 @@ export interface MarketCoverage {
   verified: number;
   status: 'verified' | 'found_unverified' | 'no_match' | 'failed' | 'not_attempted';
   message?: string;
+}
+
+export type ProviderFailureKind =
+  | 'captcha'
+  | 'login_required'
+  | 'rate_limited'
+  | 'network_transient'
+  | 'blocked_by_site'
+  | 'not_found'
+  | 'region_required'
+  | 'stock_check_required'
+  | 'parse_failed'
+  | 'relay_offline'
+  | 'unknown';
+
+export interface ProviderAttempt {
+  market: string;
+  attemptedAt: string;
+  completedAt?: string;
+  discovery: { attempted: boolean; hitCount: number };
+  identity: { exact: number; uncertain: number; different: number };
+  verification: { attempted: number; succeeded: number; failed: number };
+  offers: { extracted: number; eligible: number };
+  failureKind?: ProviderFailureKind;
+  failureMessage?: string;
+  status: MarketCoverage['status'];
 }
 
 export interface RecommendationScores {
@@ -348,6 +476,8 @@ export interface ProductReport {
   membershipScenarios?: MembershipScenariosReport;
   eventWindow?: EventWindowReport;
   standardPriceRows?: StandardPriceRowReport[];
+  purchaseContextApplied?: PurchaseContextApplied;
+  validationWarnings?: ReliabilityIssue[];
 }
 
 export type ResearchJobStatus = 'queued' | 'running' | 'completed' | 'partial' | 'failed';

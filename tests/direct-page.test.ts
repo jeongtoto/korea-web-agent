@@ -13,9 +13,23 @@ const fixture = `<!doctype html>
   "@context":"https://schema.org",
   "@type":"Product",
   "name":"밀도 원목 수납침대 K",
+  "description":"서랍형 소파형 프레임",
   "brand":{"@type":"Brand","name":"밀도"},
   "sku":"BED-K-01",
-  "offers":{"@type":"Offer","price":"439000","priceCurrency":"KRW","availability":"https://schema.org/InStock"}
+  "model":"BED-K-01",
+  "additionalProperty":[
+    {"@type":"PropertyValue","name":"프레임 폭","value":"1700 mm"},
+    {"@type":"PropertyValue","name":"프레임 길이","value":"2075 mm"},
+    {"@type":"PropertyValue","name":"서랍 수납","value":"있음"},
+    {"@type":"PropertyValue","name":"헤드보드","value":"소파형"}
+  ],
+  "offers":{
+    "@type":"Offer",
+    "price":"439000",
+    "priceCurrency":"KRW",
+    "availability":"https://schema.org/InStock",
+    "shippingDetails":{"@type":"OfferShippingDetails","shippingRate":{"@type":"MonetaryAmount","value":"0","currency":"KRW"}}
+  }
 }
 </script>
 </head><body><h1>Product</h1></body></html>`;
@@ -35,6 +49,12 @@ test('fetchDirectPage extracts OpenGraph metadata and Product JSON-LD as attribu
   assert.equal(result.product?.sku, 'BED-K-01');
   assert.equal(result.product?.offers?.price, 439000);
   assert.equal(result.product?.offers?.currency, 'KRW');
+  assert.equal(result.product?.offers?.shippingFee, 0);
+  assert.equal(result.facts?.model, 'BED-K-01');
+  assert.equal(result.facts?.attributes?.supportedWidthMm, 1700);
+  assert.equal(result.facts?.attributes?.supportedLengthMm, 2075);
+  assert.equal(result.facts?.attributes?.drawerStorage, true);
+  assert.equal(result.facts?.attributes?.headboardStyle, 'sofa');
   assert.ok(result.evidence.some((e) => e.evidenceClass === 'retailer_listing' && e.sourceUrl.includes('brand.naver.com')));
   assert.ok(result.evidence.every((e) => e.acquisitionMethod === 'structured_data' || e.acquisitionMethod === 'static_html'));
 });

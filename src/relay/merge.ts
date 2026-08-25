@@ -1,11 +1,22 @@
 import { normalizeEvidence } from '../core/evidence.ts';
+import { candidateIdentityFromText, compareCanonicalIdentity } from '../core/identity-match.ts';
 import { matchEvidenceToProduct } from '../core/product-match.ts';
-import type { EvidenceItem, MarketOffer, NormalizedTarget, OfferCondition, PriceSnapshot, ResearchJob } from '../core/types.ts';
+import type {
+  CanonicalIdentityMatch,
+  EvidenceItem,
+  MarketOffer,
+  NormalizedTarget,
+  OfferCondition,
+  PriceSnapshot,
+  ResearchJob,
+} from '../core/types.ts';
 import { buildProductReport } from '../report/product-report.ts';
 import { rankMarketOffers } from '../core/offer-engine.ts';
 import { buildRecommendations } from '../core/recommendation-engine.ts';
 import { selectNaverLiveProductCard } from './naver-live.ts';
 import { sanitizeRelayResult } from './protocol.ts';
+
+const ALLOWED_CONDITIONS: OfferCondition[] = ['new', 'refurbished', 'open_box', 'display', 'used', 'unknown'];
 
 function numberField(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
@@ -23,6 +34,11 @@ function sanitizedObject(rawResult: unknown): Record<string, unknown> {
   const result = sanitizeRelayResult(rawResult);
   if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Relay result must be an object');
   return result as Record<string, unknown>;
+}
+
+function conditionField(value: unknown): OfferCondition | undefined {
+  const condition = stringField(value) as OfferCondition | undefined;
+  return condition && ALLOWED_CONDITIONS.includes(condition) ? condition : undefined;
 }
 
 function priceFromObject(object: Record<string, unknown>): PriceSnapshot {
@@ -144,6 +160,60 @@ function relayTitleConsistent(job: ResearchJob, title: string): boolean {
   return match.level === 'exact_product' || match.level === 'probable_product';
 }
 
+function canonicalRelayIdentityMatch(
+  job: ResearchJob,
+  object: Record<string, unknown>,
+  title: string | undefined,
+): CanonicalIdentityMatch | undefined {
+  const canonicalIdentity = job.researchContext?.recommendationMode
+    ? undefined
+    : job.researchContext?.canonicalIdentity;
+  if (!canonicalIdentity) return undefined;
+  const text = [
+    title,
+    stringField(object.selectedOption),
+    stringField(object.model),
+    stringField(object.sku),
+    stringField(object.variant),
+  ].filter((value): value is string => Boolean(value)).join(' ');
+  const candidate = candidateIdentityFromText(text, conditionField(object.condition));
+  return compareCanonicalIdentity(canonicalIdentity, candidate);
+}
+
+function rejectRelayIdentity(
+  job: ResearchJob,
+  completedAt: string,
+  match?: CanonicalIdentityMatch,
+): ResearchJob {
+  const detail = match ? ` (${match.verdict})` : '';
+  const message = `Relay page identity did not match the requested exact bundle${detail}; personalized commerce fields were ignored.`;
+  return {
+    ...job,
+    status: 'partial',
+    updatedAt: completedAt,
+    completedAt,
+    sourceResults: [
+      ...job.sourceResults.filter((source) => source.source !== 'local_relay'),
+      {
+        source: 'local_relay',
+        success: false,
+        acquisitionMethod: 'local_relay',
+        attemptedAt: completedAt,
+        completedAt,
+        evidence: [],
+        error: message,
+      },
+    ],
+    relay: {
+      available: true,
+      used: false,
+      mode: 'public_only',
+      message,
+    },
+    errors: job.errors.includes(message) ? job.errors : [...job.errors, message],
+  };
+}
+
 function mergeTarget(job: ResearchJob, title: string | undefined): NormalizedTarget {
   const target: NormalizedTarget = job.target.kind === 'unknown'
     ? { ...job.target, kind: 'product' }
@@ -193,11 +263,16 @@ export function applyPersonalizedRelayResult(job: ResearchJob, rawResult: unknow
   const object = sanitizedObject(rawResult);
   if (Array.isArray(object.offers)) return applyBatchRelayResult(job, object.offers, completedAt);
   const rawTitle = stringField(object.title);
-  const titleRejected = Boolean(rawTitle && !relayTitleConsistent(job, rawTitle));
-  const title = titleRejected ? undefined : rawTitle;
-  const rawPrice = priceFromObject(object);
-  const price: PriceSnapshot = titleRejected ? { currency: rawPrice.currency } : rawPrice;
-  const usefulCommerce = !titleRejected && hasUsefulCommerceFields(price);
+  const canonicalMatch = canonicalRelayIdentityMatch(job, object, rawTitle);
+  if (canonicalMatch && canonicalMatch.verdict !== 'exact') {
+    return rejectRelayIdentity(job, completedAt, canonicalMatch);
+  }
+  const titleRejected = Boolean(!canonicalMatch && rawTitle && !relayTitleConsistent(job, rawTitle));
+  if (titleRejected) return rejectRelayIdentity(job, completedAt);
+
+  const title = rawTitle;
+  const price = priceFromObject(object);
+  const usefulCommerce = hasUsefulCommerceFields(price);
   const target = mergeTarget(job, title);
   const localEvidence = relayEvidence(job, target, price, title, completedAt);
   const evidence = normalizeEvidence([...job.evidence.filter((item) => item.acquisitionMethod !== 'local_relay'), localEvidence]);
@@ -205,27 +280,24 @@ export function applyPersonalizedRelayResult(job: ResearchJob, rawResult: unknow
     ...job.sourceResults.filter((source) => source.source !== 'local_relay'),
     {
       source: 'local_relay',
-      success: !titleRejected,
+      success: true,
       acquisitionMethod: 'local_relay' as const,
       attemptedAt: completedAt,
       completedAt,
       evidence: [localEvidence],
-      ...(titleRejected ? { error: 'Authenticated page title did not match the resolved product identity; personalized commerce fields were ignored.' } : {}),
     },
   ];
   const relay = {
     available: true,
     used: true,
     mode: 'local_authenticated' as const,
-    message: titleRejected
-      ? 'Authenticated page title did not match the resolved product identity; personalized commerce fields were ignored.'
-      : usefulCommerce
-        ? 'Personalized read-only commerce fields were read from the local authenticated browser.'
-        : title
-          ? 'The authenticated browser confirmed product identity but returned no personalized price or delivery fields.'
-          : 'The authenticated browser returned no useful normalized commerce fields.',
+    message: usefulCommerce
+      ? 'Personalized read-only commerce fields were read from the local authenticated browser.'
+      : title
+        ? 'The authenticated browser confirmed product identity but returned no personalized price or delivery fields.'
+        : 'The authenticated browser returned no useful normalized commerce fields.',
   };
-  const status: ResearchJob['status'] = job.errors.length || titleRejected ? 'partial' : 'completed';
+  const status: ResearchJob['status'] = job.errors.length ? 'partial' : 'completed';
   const report = buildProductReport({
     target,
     evidence,
@@ -233,6 +305,12 @@ export function applyPersonalizedRelayResult(job: ResearchJob, rawResult: unknow
     ...(job.researchContext?.intent ? { intent: job.researchContext.intent } : {}),
     ...(job.researchContext?.identityConfidence !== undefined ? { identityConfidence: job.researchContext.identityConfidence } : {}),
   });
+  if (job.report?.offers) report.offers = job.report.offers;
+  if (job.report?.bestOffers) report.bestOffers = job.report.bestOffers;
+  if (job.report?.marketCoverage) report.marketCoverage = job.report.marketCoverage;
+  if (job.report?.recommendations) report.recommendations = job.report.recommendations;
+  if (job.report?.manualChecks) report.manualChecks = job.report.manualChecks;
+  if (job.report?.priceHistory) report.priceHistory = job.report.priceHistory;
 
   return {
     ...job,
@@ -253,6 +331,7 @@ function applyBatchRelayResult(job: ResearchJob, rawOffers: unknown[], completed
   const localEvidence: EvidenceItem[] = [];
   let primaryPrice: PriceSnapshot | undefined;
   let primaryTitle: string | undefined;
+  let canonicalRejected = 0;
 
   for (const raw of rawOffers.slice(0, 8)) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
@@ -273,11 +352,13 @@ function applyBatchRelayResult(job: ResearchJob, rawOffers: unknown[], completed
         })),
     };
     const temporaryJob: ResearchJob = { ...job, target: Object.keys(rawHint).length ? expectedTarget : job.target, request: { ...job.request, url } };
-    const titleConsistent = relayTitleConsistent(temporaryJob, title);
+    const canonicalMatch = canonicalRelayIdentityMatch(job, object, title);
+    const titleConsistent = canonicalMatch
+      ? canonicalMatch.verdict === 'exact'
+      : relayTitleConsistent(temporaryJob, title);
+    if (canonicalMatch && canonicalMatch.verdict !== 'exact') canonicalRejected += 1;
     const price = priceFromObject(object);
-    const conditionValue = stringField(object.condition);
-    const allowedConditions: OfferCondition[] = ['new', 'refurbished', 'open_box', 'display', 'used', 'unknown'];
-    const condition: OfferCondition = allowedConditions.includes(conditionValue as OfferCondition) ? conditionValue as OfferCondition : 'unknown';
+    const condition = conditionField(object.condition) ?? 'unknown';
     const bundleComplete = typeof object.bundleComplete === 'boolean' ? object.bundleComplete : true;
     const salePrice = price.cashPaymentPrice ?? price.couponPrice ?? price.membershipPrice ?? price.salePrice;
     const shippingFee = price.shippingFee;
@@ -296,9 +377,10 @@ function applyBatchRelayResult(job: ResearchJob, rawOffers: unknown[], completed
       retrievedAt: completedAt,
       verification: 'page_verified',
       condition,
-      identityScore: titleConsistent ? 0.9 : 0.2,
+      identityScore: canonicalMatch?.confidence ?? (titleConsistent ? 0.9 : 0.2),
       bundleComplete,
       eligible: exclusionReasons.length === 0,
+      ...(canonicalMatch ? { identityVerdict: canonicalMatch.verdict } : {}),
       conditions: stringArray(object.conditions),
       riskFlags: stringArray(object.riskFlags),
       exclusionReasons,
@@ -327,13 +409,17 @@ function applyBatchRelayResult(job: ResearchJob, rawOffers: unknown[], completed
     }
   }
 
+  const successCount = verifiedOffers.filter((offer) => offer.eligible).length;
+  if (canonicalRejected > 0 && successCount === 0) {
+    return rejectRelayIdentity(job, completedAt);
+  }
+
   const target = mergeTarget(job, primaryTitle);
   const evidence = normalizeEvidence([...job.evidence.filter((item) => item.acquisitionMethod !== 'local_relay'), ...localEvidence]);
   const publicOffers = job.report?.offers ?? [];
   const offersByUrl = new Map(publicOffers.map((offer) => [offer.url, offer]));
   for (const offer of verifiedOffers) offersByUrl.set(offer.url, offer);
   const offers = [...offersByUrl.values()];
-  const successCount = verifiedOffers.filter((offer) => offer.eligible).length;
   const { bestOffers } = rankMarketOffers(offers, job.request.purchaseContext ?? {});
   const report = buildProductReport({
     target,
@@ -344,6 +430,7 @@ function applyBatchRelayResult(job: ResearchJob, rawOffers: unknown[], completed
   });
   report.offers = offers;
   report.bestOffers = bestOffers;
+  if (job.report?.priceHistory) report.priceHistory = job.report.priceHistory;
   if (job.researchContext?.recommendationCandidates?.length) {
     report.recommendations = buildRecommendations({
       question: job.request.question,
@@ -378,8 +465,8 @@ function applyBatchRelayResult(job: ResearchJob, rawOffers: unknown[], completed
     ],
     relay: {
       available: true,
-      used: true,
-      mode: 'local_authenticated',
+      used: successCount > 0,
+      mode: successCount > 0 ? 'local_authenticated' : 'public_only',
       message: `${successCount} authenticated read-only market offer(s) were verified; ${verifiedOffers.length - successCount} mismatched or incomplete offer(s) were excluded.`,
     },
     report,

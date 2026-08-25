@@ -146,6 +146,7 @@ test('bedding category question returns a ranked Best 3 with design, care, revie
   }, {
     publicSearch: async () => beddingHits,
     cloudResearch: async (request, context) => runResearch(request, createDefaultResearchDependencies({
+      directPage: async (requestedUrl) => ({ url: requestedUrl, evidence: [] }),
       publicSearch: async () => beddingHits,
       academicSearch: async () => [],
       relayClient: null,
@@ -157,4 +158,84 @@ test('bedding category question returns a ranked Best 3 with design, care, revie
   assert.equal(result.recommendations?.length, 3);
   assert.deepEqual(result.recommendations?.map((item) => item.rank), [1, 2, 3]);
   assert.ok(result.recommendations?.every((item) => item.scores.design > 0 && item.scores.care > 0 && item.reasons.length > 0));
+});
+
+test('bed-frame recommendation ranks only verified hard-constraint eligible candidate', async () => {
+  const question = '1670×2075 매트리스가 실제로 올라가야 함. 서랍형 필수. 무헤드 또는 소파형 헤드만. 침대 프레임 추천해줘.';
+  const candidates = [
+    {
+      target: { kind: 'product' as const, name: 'A 1700x2000 서랍 소파 프레임' },
+      title: 'A 1700x2000 서랍 소파 프레임',
+      score: 0.95,
+      sourceUrls: ['https://example.com/frame-a'],
+      verifiedFacts: { supportedWidthMm: 1700, supportedLengthMm: 2000, drawerStorage: true, headboardStyle: 'sofa' },
+    },
+    {
+      target: { kind: 'product' as const, name: 'B K 서랍 무헤드 프레임' },
+      title: 'B K 서랍 무헤드 프레임',
+      score: 0.94,
+      sourceUrls: ['https://example.com/frame-b'],
+      verifiedFacts: { drawerStorage: true, headboardStyle: 'headless' },
+    },
+    {
+      target: { kind: 'product' as const, name: 'C 1700x2075 서랍 소파 프레임' },
+      title: 'C 1700x2075 서랍 소파 프레임',
+      score: 0.93,
+      sourceUrls: ['https://example.com/frame-c'],
+      verifiedFacts: { supportedWidthMm: 1700, supportedLengthMm: 2075, drawerStorage: true, headboardStyle: 'sofa' },
+    },
+  ];
+
+  const job = await runResearch({ question, category: 'product' }, createDefaultResearchDependencies({
+    directPage: async (url) => ({ url, evidence: [] }),
+    publicSearch: async () => [],
+    academicSearch: async () => [],
+    relayClient: null,
+    now: () => new Date('2026-08-25T07:00:00.000Z'),
+    idFactory: () => 'bed-frame-hard-constraints',
+  }), {
+    resolvedTarget: { kind: 'product', name: '침대 프레임' },
+    identityConfidence: 0.9,
+    recommendationMode: true,
+    recommendationCandidates: candidates,
+  });
+
+  assert.deepEqual(job.report?.recommendations?.map((item) => item.title), ['C 1700x2075 서랍 소파 프레임']);
+  assert.equal(job.report?.recommendations?.[0]?.preliminary, false);
+});
+
+test('bed-frame recommendation without a verified fit never promotes a preliminary candidate to BUY', async () => {
+  const question = '1670×2075 매트리스가 실제로 올라가야 함. 서랍형 필수. 무헤드 또는 소파형 헤드만. 침대 프레임 추천해줘.';
+  const job = await runResearch({ question, category: 'product' }, createDefaultResearchDependencies({
+    directPage: async (url) => ({ url, evidence: [] }),
+    publicSearch: async () => [],
+    academicSearch: async () => [],
+    relayClient: null,
+    now: () => new Date('2026-08-25T07:00:00.000Z'),
+    idFactory: () => 'bed-frame-no-verified-fit',
+  }), {
+    resolvedTarget: { kind: 'product', name: '침대 프레임' },
+    identityConfidence: 0.9,
+    recommendationMode: true,
+    recommendationCandidates: [
+      {
+        target: { kind: 'product', name: 'A 1700x2000 서랍 소파 프레임' },
+        title: 'A 1700x2000 서랍 소파 프레임',
+        score: 0.95,
+        sourceUrls: ['https://example.com/frame-a'],
+        verifiedFacts: { supportedWidthMm: 1700, supportedLengthMm: 2000, drawerStorage: true, headboardStyle: 'sofa' },
+      },
+      {
+        target: { kind: 'product', name: 'B K 서랍 무헤드 프레임' },
+        title: 'B K 서랍 무헤드 프레임',
+        score: 0.94,
+        sourceUrls: ['https://example.com/frame-b'],
+        verifiedFacts: { drawerStorage: true, headboardStyle: 'headless' },
+      },
+    ],
+  });
+
+  assert.notEqual(job.report?.decision, 'BUY');
+  assert.equal(job.report?.decision, 'INSUFFICIENT');
+  assert.ok((job.report?.recommendations ?? []).every((item) => item.preliminary));
 });

@@ -1,5 +1,5 @@
-import type { JsonKeyValueStore } from './relay-state.ts';
-import type { NormalizedTarget } from '../core/types.ts';
+import { canonicalIdentityKey } from '../core/canonical-identity.ts';
+import type { CanonicalProductIdentity, NormalizedTarget } from '../core/types.ts';
 import {
   classifyPricePosition,
   comparePriceSnapshots,
@@ -7,6 +7,7 @@ import {
   type PriceComparison,
   type PricePosition,
 } from '../core/shopping-intelligence.ts';
+import type { JsonKeyValueStore } from './relay-state.ts';
 
 const RETENTION_DAYS = 183;
 const RETENTION_MS = RETENTION_DAYS * 24 * 60 * 60 * 1000;
@@ -31,7 +32,7 @@ export interface PriceHistorySummary {
   position: PricePosition;
 }
 
-function skuIdentity(target: NormalizedTarget): string | undefined {
+function legacySkuIdentity(target: NormalizedTarget): string | undefined {
   if (!target.model?.trim()) return undefined;
   const model = normalizeSku(target.model);
   if (!model) return undefined;
@@ -39,8 +40,22 @@ function skuIdentity(target: NormalizedTarget): string | undefined {
   return variant ? `${model}+${variant}` : model;
 }
 
-export function priceHistoryKey(target: NormalizedTarget): string | undefined {
-  const sku = skuIdentity(target);
+function historyIdentity(
+  target: NormalizedTarget,
+  canonicalIdentity?: CanonicalProductIdentity,
+): string | undefined {
+  if (canonicalIdentity?.primary.model) {
+    const canonical = canonicalIdentityKey(canonicalIdentity);
+    if (canonical) return canonical;
+  }
+  return legacySkuIdentity(target);
+}
+
+export function priceHistoryKey(
+  target: NormalizedTarget,
+  canonicalIdentity?: CanonicalProductIdentity,
+): string | undefined {
+  const sku = historyIdentity(target, canonicalIdentity);
   return sku ? `${PRICE_PREFIX}${sku}` : undefined;
 }
 
@@ -82,9 +97,10 @@ export async function getPriceHistory(
   store: JsonKeyValueStore,
   target: NormalizedTarget,
   nowMs = Date.now(),
+  canonicalIdentity?: CanonicalProductIdentity,
 ): Promise<PriceHistorySummary | null> {
-  const key = priceHistoryKey(target);
-  const sku = skuIdentity(target);
+  const key = priceHistoryKey(target, canonicalIdentity);
+  const sku = historyIdentity(target, canonicalIdentity);
   if (!key || !sku) return null;
   const stored = await store.getJSON<StoredPriceHistory>(key);
   const observations = pruneAndSort(stored?.observations ?? [], nowMs);
@@ -96,9 +112,10 @@ export async function appendPriceObservation(
   target: NormalizedTarget,
   observation: StoredPriceObservation,
   nowMs = Date.now(),
+  canonicalIdentity?: CanonicalProductIdentity,
 ): Promise<PriceHistorySummary | null> {
-  const key = priceHistoryKey(target);
-  const sku = skuIdentity(target);
+  const key = priceHistoryKey(target, canonicalIdentity);
+  const sku = historyIdentity(target, canonicalIdentity);
   if (!key || !sku || !validObservation(observation)) return null;
 
   const stored = await store.getJSON<StoredPriceHistory>(key);

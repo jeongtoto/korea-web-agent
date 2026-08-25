@@ -2,6 +2,7 @@ import { classifyResearchIntent } from '../core/intent.ts';
 import { matchEvidenceToProduct } from '../core/product-match.ts';
 import { assertPublicUrl, isRelayDomainAllowed } from '../core/policy.ts';
 import type {
+  CanonicalProductIdentity,
   EvidenceClass,
   NormalizedTarget,
   PriceSnapshot,
@@ -11,6 +12,8 @@ import type {
   ProductRecommendation,
   ManualCheck,
   PurchaseContext,
+  PurchaseContextApplied,
+  ReliabilityIssue,
   ProductCandidate,
   ProductConfidenceDimensions,
   ProductSpecificity,
@@ -27,6 +30,7 @@ import type {
 } from '../core/types.ts';
 import { resolveProduct } from '../orchestrator/product-resolver.ts';
 import type { SearchHit } from '../providers/index.ts';
+import { buildShoppingPresentation, type ShoppingPresentation } from '../report/shopping-presentation.ts';
 
 export interface AgentResearchInput {
   query: string;
@@ -75,6 +79,7 @@ export interface AgentResearchResult {
   query: string;
   intent: ResearchIntent;
   product: AgentProductIdentity;
+  canonicalIdentity?: CanonicalProductIdentity;
   decision: ReportDecision;
   confidence: number;
   confidenceDimensions?: ProductConfidenceDimensions;
@@ -89,6 +94,8 @@ export interface AgentResearchResult {
   membershipScenarios?: MembershipScenariosReport;
   eventWindow?: EventWindowReport;
   standardPriceRows?: StandardPriceRowReport[];
+  presentation?: ShoppingPresentation;
+  validationWarnings?: ReliabilityIssue[];
   relay: AgentRelaySummary;
   summary: string;
   reasons: string[];
@@ -97,7 +104,7 @@ export interface AgentResearchResult {
   missingInformation: string[];
   evidence: AgentEvidenceSummary[];
   sourceCoverage: AgentSourceCoverage;
-  purchaseContextApplied?: PurchaseContext;
+  purchaseContextApplied?: PurchaseContextApplied | PurchaseContext;
   errors: string[];
 }
 
@@ -216,6 +223,7 @@ export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {
     errors: [...job.errors],
   };
   if (job.status === 'running' || job.status === 'queued') result.pollUrl = `/api/agent/job?jobId=${encodeURIComponent(job.id)}`;
+  if (job.researchContext?.canonicalIdentity) result.canonicalIdentity = job.researchContext.canonicalIdentity;
   if (report?.confidenceDimensions) result.confidenceDimensions = report.confidenceDimensions;
   if (report?.price) result.price = report.price;
   if (report?.personalizedPrice) result.personalizedPrice = report.personalizedPrice;
@@ -228,7 +236,16 @@ export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {
   if (report?.membershipScenarios) result.membershipScenarios = report.membershipScenarios;
   if (report?.eventWindow) result.eventWindow = report.eventWindow;
   if (report?.standardPriceRows) result.standardPriceRows = report.standardPriceRows;
-  if (job.request.purchaseContext) result.purchaseContextApplied = job.request.purchaseContext;
+  if (report?.validationWarnings) result.validationWarnings = report.validationWarnings;
+  if (report?.purchaseContextApplied) result.purchaseContextApplied = report.purchaseContextApplied;
+  else if (job.request.purchaseContext) result.purchaseContextApplied = job.request.purchaseContext;
+  if (report && job.status !== 'queued' && job.status !== 'running') {
+    result.presentation = buildShoppingPresentation(report, {
+      ...(job.researchContext?.canonicalIdentity ? { canonicalIdentity: job.researchContext.canonicalIdentity } : {}),
+      fallbackName: job.target.name ?? job.target.model,
+      relay: job.relay,
+    });
+  }
   return result;
 }
 
@@ -385,6 +402,7 @@ export async function runAgentResearch(
     identityConfidence: resolution.confidence,
     resolvedTarget: target,
     resolutionAmbiguous: false,
+    ...(resolution.canonicalIdentity ? { canonicalIdentity: resolution.canonicalIdentity } : {}),
     ...(recommendationMode ? { recommendationMode: true, recommendationCandidates: resolution.candidates.slice(0, 8) } : {}),
   };
   const job = await deps.cloudResearch(request, context);

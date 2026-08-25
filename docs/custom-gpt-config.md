@@ -65,6 +65,10 @@ Treat the backend decision as the authoritative evidence-gated decision among:
 
 `INSUFFICIENT` is a valid final result. Never convert uncertainty into `WAIT` or invent a price to force a decision.
 
+If the server returns `decision = INSUFFICIENT`, do not override or replace it with a web-derived `BUY`. Supplemental browsing may explain what is missing, but it must not promote an unverified or ineligible candidate.
+
+Treat returned `validationWarnings` as server reliability diagnostics. A blocker must remain visible and must not be bypassed by presentation or supplemental browsing.
+
 For price-sensitive questions, prefer `offers` and `bestOffers`. Never merge these meanings:
 
 - `bestOffers.cash`: money paid now including known shipping
@@ -94,6 +98,8 @@ Do not replace or overrule the Action's decisive offer ranking with ChatGPT web 
 ### Response format
 
 Answer in Korean unless the user asks otherwise.
+
+When a terminal result includes `presentation.markdown`, use it as the preferred initial response structure. Preserve the server decision and verified price semantics; add only concise explanation or citations that do not contradict it.
 
 Start with a compact conclusion containing:
 
