@@ -1,4 +1,5 @@
 import type {
+  MarketProvider,
   MarketProviderDefinition,
   MarketProviderId,
   ProviderBudget,
@@ -120,4 +121,57 @@ export function providerDefinitionById(
   id: MarketProviderId,
 ): Readonly<MarketProviderDefinition> | undefined {
   return PROVIDER_DEFINITIONS.find((provider) => provider.id === id);
+}
+
+/**
+ * Loads the concrete adapters only after this registry module has finished
+ * initializing. The lazy imports intentionally avoid a runtime cycle because
+ * market adapters read their immutable definitions from this module.
+ */
+export async function createMarketProviderRegistry(): Promise<readonly MarketProvider[]> {
+  const [
+    naver,
+    coupang,
+    danawa,
+    enuri,
+    elevenst,
+    gmarket,
+    auction,
+    ssg,
+    lotteon,
+    himart,
+    official,
+    kakao,
+    toss,
+  ] = await Promise.all([
+    import('./markets/naver.ts'),
+    import('./markets/coupang.ts'),
+    import('./markets/danawa.ts'),
+    import('./markets/enuri.ts'),
+    import('./markets/elevenst.ts'),
+    import('./markets/gmarket.ts'),
+    import('./markets/auction.ts'),
+    import('./markets/ssg.ts'),
+    import('./markets/lotteon.ts'),
+    import('./markets/himart.ts'),
+    import('./markets/official.ts'),
+    import('./markets/kakaotalkdeal.ts'),
+    import('./markets/toss-shopping.ts'),
+  ]);
+
+  return Object.freeze([
+    naver.naverShoppingProvider,
+    coupang.coupangProvider,
+    danawa.danawaProvider,
+    enuri.enuriProvider,
+    elevenst.elevenstProvider,
+    gmarket.gmarketProvider,
+    auction.auctionProvider,
+    ssg.ssgProvider,
+    lotteon.lotteonProvider,
+    himart.himartProvider,
+    official.officialProvider,
+    kakao.kakaoTalkDealProvider,
+    toss.tossShoppingProvider,
+  ]);
 }
