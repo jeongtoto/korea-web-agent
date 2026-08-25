@@ -50,3 +50,15 @@ test('exact seller wording with the required component can be exact without repe
   assert.equal(result.conflicts.length, 0);
   assert.equal(result.missing.length, 0);
 });
+
+test('an under-specified reference cannot mark unrelated retailer text exact', () => {
+  const weakReference = compileCanonicalIdentity(
+    { kind: 'product', brand: '밀도', name: '밀도 원목 수납침대 K' },
+    '이 침대 어때?',
+  );
+  const unrelated = candidateIdentityFromText('KCL 안전인증 KC 생활용품 시험검사 안내');
+  const result = compareCanonicalIdentity(weakReference, unrelated);
+
+  assert.notEqual(result.verdict, 'exact');
+  assert.ok(result.confidence < 1);
+});
