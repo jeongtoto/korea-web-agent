@@ -68,6 +68,37 @@ export interface NormalizedTarget {
   canonicalUrl?: string;
 }
 
+export interface CanonicalComponent {
+  type: string;
+  model?: string;
+  version?: string;
+  quantity?: number;
+  aliases?: string[];
+}
+
+export interface CanonicalProductIdentity {
+  kind: 'product';
+  brand?: string;
+  family?: string;
+  primary: {
+    model?: string;
+    size?: string;
+    generation?: string;
+    capacity?: string;
+    color?: string;
+  };
+  requiredComponents: CanonicalComponent[];
+  optionalComponents: CanonicalComponent[];
+  condition: OfferCondition | 'any';
+  domesticModel?: boolean;
+  installationType?: string;
+  source: {
+    question: string;
+    url?: string;
+    confidence: number;
+  };
+}
+
 export interface ProductMatchResult {
   level: ProductMatchLevel;
   score: number;
@@ -88,12 +119,14 @@ export interface ProductResolution {
   ambiguous: boolean;
   candidates: ProductCandidate[];
   identityEvidence: Array<{ title: string; url: string; score: number }>;
+  canonicalIdentity?: CanonicalProductIdentity;
 }
 
 export interface ResearchContext {
   intent?: ResearchIntent;
   identityConfidence?: number;
   resolvedTarget?: NormalizedTarget;
+  canonicalIdentity?: CanonicalProductIdentity;
   resolutionAmbiguous?: boolean;
   recommendationMode?: boolean;
   recommendationCandidates?: ProductCandidate[];
