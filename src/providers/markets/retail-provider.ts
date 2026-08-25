@@ -69,7 +69,7 @@ function applyRetailMandatoryCosts(offer: MarketOffer, verified: VerifiedCandida
     conditions: [...offer.conditions],
     riskFlags: [...offer.riskFlags],
     exclusionReasons: [...offer.exclusionReasons],
-    fieldVerification: offer.fieldVerification ? { ...offer.fieldVerification } : undefined,
+    ...(offer.fieldVerification ? { fieldVerification: { ...offer.fieldVerification } } : {}),
   };
 
   if (unresolvedFulfillment(attributes)) {
