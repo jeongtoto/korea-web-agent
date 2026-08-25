@@ -4,7 +4,12 @@ import { runCloudResearch } from '../src/cloud/research-service.ts';
 import { getPriceHistory } from '../src/cloud/price-history.ts';
 import { shapeAgentResearchJob } from '../src/agent/research.ts';
 import { compileCanonicalIdentity } from '../src/core/canonical-identity.ts';
-import type { JsonKeyValueStore } from '../src/cloud/relay-state.ts';
+import {
+  completePersistentRelay,
+  markPersistentConnectorSeen,
+  pollPersistentRelay,
+  type JsonKeyValueStore,
+} from '../src/cloud/relay-state.ts';
 import type { MarketOffer, ResearchJob } from '../src/core/types.ts';
 
 class MemoryStore implements JsonKeyValueStore {
@@ -232,4 +237,51 @@ test('report intelligence exposes stable rows, member/non-member scenarios and e
   assert.equal(job.report?.membershipScenarios?.withMembership.expectedPoints, 15000);
   assert.equal(job.report?.eventWindow?.endsOn, '2026-08-31');
   assert.equal(job.report?.eventWindow?.status, 'active');
+});
+
+test('Relay V2 cannot replace decisive public V3 price or contaminate canonical public history', async () => {
+  const store = new MemoryStore();
+  const at = '2026-08-24T09:00:00.000Z';
+  const completedAt = '2026-08-24T09:00:10.000Z';
+  const atMs = Date.parse(at);
+  const secret = '0123456789abcdef0123456789abcdef';
+  const request = {
+    question: '와이드뷰 QWGE43UT1 + EKWBYME78W(V3) 43인치 이동형 패키지 현재 가격',
+    category: 'product' as const,
+    includeLocalRelay: true,
+    url: 'https://brand.naver.com/example/products/1',
+  };
+
+  await markPersistentConnectorSeen(store, atMs);
+  const waiting = await runCloudResearch(request, {
+    store,
+    relaySecret: secret,
+    nowMs: () => atMs,
+    publicResearch: async () => publicJob('relay-v2-history-regression', 399000, at),
+  });
+
+  assert.equal(waiting.status, 'running');
+  assert.deepEqual(waiting.report?.priceHistory?.observations.map((item) => item.cashPrice), [399000]);
+
+  const relayJob = await pollPersistentRelay(store, atMs + 1000);
+  assert.ok(relayJob);
+  const merged = await completePersistentRelay(store, relayJob.id, {
+    title: '와이드뷰 QWGE43UT1 + EKWBYME78W(V2) 43인치 이동형 패키지',
+    model: 'QWGE43UT1',
+    variant: 'EKWBYME78W(V2)',
+    currency: 'KRW',
+    cashPaymentPrice: 359000,
+    shippingFee: 0,
+    availability: 'in_stock',
+  }, completedAt);
+
+  assert.equal(merged.report?.bestOffers?.cash?.amount, 399000);
+  assert.equal(merged.report?.personalizedPrice, undefined);
+  assert.equal(merged.relay.used, false);
+  assert.equal(merged.relay.mode, 'public_only');
+  assert.match(merged.relay.message ?? '', /identity|exact bundle/i);
+  assert.deepEqual(merged.report?.priceHistory?.observations.map((item) => item.cashPrice), [399000]);
+
+  const history = await getPriceHistory(store, merged.target, Date.parse(completedAt), canonicalV3);
+  assert.deepEqual(history?.observations.map((item) => item.cashPrice), [399000]);
 });
