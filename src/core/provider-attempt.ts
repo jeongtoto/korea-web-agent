@@ -23,11 +23,17 @@ export function deriveMarketCoverage(attempts: ProviderAttempt[]): MarketCoverag
     const verified = Math.min(attempt.offers.eligible, attempt.verification.succeeded);
     const status = derivedStatus(attempt);
     const coverage: MarketCoverage = {
+      ...(attempt.providerId ? { providerId: attempt.providerId } : {}),
       market: attempt.market,
       attempted: attempt.discovery.attempted,
       found,
       verified,
       status,
+      ...(attempt.comparisonPages !== undefined ? { comparisonPages: attempt.comparisonPages } : {}),
+      ...(attempt.expandedSellers !== undefined ? { expandedSellers: attempt.expandedSellers } : {}),
+      ...(attempt.exactOffers !== undefined ? { exactOffers: attempt.exactOffers } : {}),
+      ...(attempt.eligibleSellers !== undefined ? { eligibleSellers: attempt.eligibleSellers } : {}),
+      ...(attempt.failureKind ? { failureKind: attempt.failureKind } : {}),
     };
     if (status === 'failed' && attempt.failureKind) {
       coverage.message = attempt.failureMessage
