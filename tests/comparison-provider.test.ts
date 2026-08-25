@@ -135,3 +135,32 @@ test('Danawa and Enuri expansion to the same downstream seller shares one reques
   assert.equal(danawaOffers[0]?.salePrice, 449000);
   assert.equal(enuriOffers[0]?.salePrice, 449000);
 });
+
+test('comparison page with non-exact canonical identity does not expand downstream sellers', async () => {
+  const comparisonUrl = 'https://prod.danawa.com/info/?pcode=126';
+  const sellerUrl = 'https://www.11st.co.kr/products/4?option=V3';
+  let sellerFetches = 0;
+  const ctx = context(async (url) => {
+    if (url.includes('danawa.com')) {
+      return {
+        url: comparisonUrl,
+        title: '와이드뷰 QWGE43UT1 43인치 TV 본체 단품 가격비교',
+        facts: { name: 'QWGE43UT1 43인치 TV 본체 단품', model: 'QWGE43UT1' },
+        sellerLinks: [{ url: sellerUrl, sellerName: '판매자A', productId: 'seller-4', advertisedPrice: 399000 }],
+        evidence: [],
+      };
+    }
+    sellerFetches += 1;
+    return sellerPage(sellerUrl, 399000, 0);
+  });
+
+  const offers = await expandAndVerifySellers(
+    danawaProvider,
+    comparisonCandidate('danawa', comparisonUrl),
+    ctx,
+    createVerificationCache<DirectPageResult>(),
+  );
+
+  assert.equal(sellerFetches, 0);
+  assert.deepEqual(offers, []);
+});
