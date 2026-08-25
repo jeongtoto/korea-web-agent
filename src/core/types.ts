@@ -326,11 +326,17 @@ export interface BestOffers {
 }
 
 export interface MarketCoverage {
+  providerId?: string;
   market: string;
   attempted: boolean;
   found: number;
   verified: number;
   status: 'verified' | 'found_unverified' | 'no_match' | 'failed' | 'not_attempted';
+  comparisonPages?: number;
+  expandedSellers?: number;
+  exactOffers?: number;
+  eligibleSellers?: number;
+  failureKind?: ProviderFailureKind;
   message?: string;
 }
 
@@ -348,6 +354,7 @@ export type ProviderFailureKind =
   | 'unknown';
 
 export interface ProviderAttempt {
+  providerId?: string;
   market: string;
   attemptedAt: string;
   completedAt?: string;
@@ -355,6 +362,10 @@ export interface ProviderAttempt {
   identity: { exact: number; uncertain: number; different: number };
   verification: { attempted: number; succeeded: number; failed: number };
   offers: { extracted: number; eligible: number };
+  comparisonPages?: number;
+  expandedSellers?: number;
+  exactOffers?: number;
+  eligibleSellers?: number;
   failureKind?: ProviderFailureKind;
   failureMessage?: string;
   status: MarketCoverage['status'];
