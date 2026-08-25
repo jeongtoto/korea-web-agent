@@ -293,8 +293,7 @@ export async function runResearch(
 
   const createdAt = timestamp(deps);
   let target = context.resolvedTarget ? { ...context.resolvedTarget } : targetFromRequest(request);
-  const initialCanonical = context.canonicalIdentity
-    ?? (target.kind === 'product' ? compileCanonicalIdentity(target, question) : undefined);
+  const providedCanonical = context.canonicalIdentity;
   const constraints = compileProductConstraints(question);
   const evidence: EvidenceItem[] = [];
   const sourceResults: ResearchSourceResult[] = [];
@@ -324,7 +323,7 @@ export async function runResearch(
     }
   }
 
-  const canonicalIdentity = initialCanonical
+  const canonicalIdentity = providedCanonical
     ?? (target.kind === 'product' ? compileCanonicalIdentity(target, question) : undefined);
   const sourcePlan = buildSourcePlan(target, request.question);
   if (sourcePlan.length) {
