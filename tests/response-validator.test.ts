@@ -92,6 +92,124 @@ test('cash winner with unknown shipping is blocked', () => {
   assert.ok(codes(validateProductReport(value, request())).includes('UNKNOWN_SHIPPING_IN_WINNER'));
 });
 
+test('resolved structured shipping is accepted even when legacy shippingFee is absent', () => {
+  const winner = offer({
+    shippingFee: undefined,
+    shipping: { status: 'free', verification: 'page_verified' },
+  });
+  const value = report();
+  value.bestOffers = {
+    cash: { basis: 'cash', rank: 1, amount: 389000, offer: winner, reasons: [] },
+  };
+  assert.equal(codes(validateProductReport(value, request())).includes('UNKNOWN_SHIPPING_IN_WINNER'), false);
+});
+
+test('publicConditional is decisive and search metadata cannot bypass the ordinary winner gates', () => {
+  const conditional = offer({
+    verification: 'search_metadata',
+    couponPrice: 379000,
+    promotion: {
+      type: 'public_coupon',
+      active: true,
+      accountRequired: false,
+      condition: '공개 쿠폰 다운로드',
+    },
+  });
+  const value = report();
+  value.bestOffers = {
+    publicConditional: {
+      basis: 'public_conditional',
+      rank: 1,
+      amount: 379000,
+      offer: conditional,
+      reasons: [],
+    },
+  };
+
+  const issues = validateProductReport(value, request());
+  assert.ok(codes(issues).includes('SEARCH_METADATA_AS_DECISIVE'));
+  assert.ok(issues.some((entry) => entry.code === 'SEARCH_METADATA_AS_DECISIVE' && entry.severity === 'blocker'));
+});
+
+test('publicConditional requires page-verified identity price and shipping fields', () => {
+  const conditional = offer({
+    couponPrice: 379000,
+    fieldVerification: {
+      identity: 'page_verified',
+      price: 'search_metadata',
+      shipping: 'page_verified',
+    },
+    promotion: {
+      type: 'public_coupon',
+      active: true,
+      accountRequired: false,
+    },
+  });
+  const value = report();
+  value.bestOffers = {
+    publicConditional: {
+      basis: 'public_conditional',
+      rank: 1,
+      amount: 379000,
+      offer: conditional,
+      reasons: [],
+    },
+  };
+
+  assert.ok(codes(validateProductReport(value, request())).includes('SEARCH_METADATA_AS_DECISIVE'));
+});
+
+test('expired or unknown-validity publicConditional promotion is a blocker', () => {
+  for (const active of [false, 'unknown'] as const) {
+    const conditional = offer({
+      couponPrice: 379000,
+      promotion: {
+        type: 'public_coupon',
+        active,
+        accountRequired: false,
+      },
+    });
+    const value = report();
+    value.bestOffers = {
+      publicConditional: {
+        basis: 'public_conditional',
+        rank: 1,
+        amount: 379000,
+        offer: conditional,
+        reasons: [],
+      },
+    };
+
+    const issues = validateProductReport(value, request());
+    assert.ok(issues.some((entry) => entry.code === 'EXPIRED_PROMOTION' && entry.severity === 'blocker'));
+  }
+});
+
+test('account-required condition cannot be represented as publicConditional', () => {
+  const conditional = offer({
+    couponPrice: 369000,
+    promotion: {
+      type: 'public_coupon',
+      active: true,
+      accountRequired: true,
+      condition: '로그인 계정 전용 쿠폰',
+    },
+  });
+  const value = report();
+  value.bestOffers = {
+    publicConditional: {
+      basis: 'public_conditional',
+      rank: 1,
+      amount: 369000,
+      offer: conditional,
+      reasons: [],
+    },
+  };
+
+  const issues = validateProductReport(value, request());
+  assert.ok(issues.some((entry) => entry.severity === 'blocker'));
+});
+
 test('alternative-condition winner must be same-except-condition identity', () => {
   const alternate = offer({
     condition: 'refurbished',
