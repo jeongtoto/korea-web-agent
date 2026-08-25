@@ -102,7 +102,7 @@ test('Naver Brand and SmartStore exact product pages may verify directly without
   }
 });
 
-test('Coupang exact public option with known shipping is decisive while account-only WOW economics are not substituted for public cash', async () => {
+test('Coupang exact public option with known shipping is decisive while account-only WOW economics stay out of the public cash offer', async () => {
   const url = 'https://www.coupang.com/vp/products/777?itemId=888&vendorItemId=999';
   const page = exactSellerPage(url, 449000, 0);
   page.promotion = {
@@ -118,7 +118,7 @@ test('Coupang exact public option with known shipping is decisive while account-
 
   assert.equal(offer?.salePrice, 449000);
   assert.equal(offer?.totalCashPrice, 449000);
-  assert.equal(offer?.promotion?.accountRequired, true);
+  assert.equal(offer?.promotion, undefined);
   assert.equal(rankMarketOffers(offer ? [offer] : []).bestOffers.cash?.amount, 449000);
 });
 
