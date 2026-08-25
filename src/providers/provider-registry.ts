@@ -87,14 +87,14 @@ const PROVIDER_DEFINITIONS: readonly Readonly<MarketProviderDefinition>[] = Obje
     market: '롯데하이마트',
     sourceType: 'himart',
     budget: budget(4, 3),
-    query: (identity) => `${identity} site:e-himart.co.kr`,
+    query: (identity) => `${identity} 공식 스펙 보증 AS 인증 공식몰`,
   }),
   definition({
     id: 'official',
     market: '공식몰',
     sourceType: 'official_store',
     budget: budget(4, 3),
-    query: (identity) => `${identity} 공식몰 공식 스펙 보증 AS`,
+    query: (identity) => `${identity} 공식 스펙 보증 AS 인증 공식몰`,
   }),
   definition({
     id: 'kakao-talkdeal',
