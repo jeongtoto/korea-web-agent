@@ -78,31 +78,36 @@ test('exact bundle candidate is direct-fetched and exact page creates page_verif
   });
 
   assert.equal(fetched, 1);
-  assert.equal(result.offers.length, 1);
-  assert.equal(result.offers[0]?.verification, 'page_verified');
-  assert.equal(result.offers[0]?.eligible, true);
-  assert.equal(result.offers[0]?.shippingFee, 0);
-  assert.equal(result.offers[0]?.totalCashPrice, 389550);
+  const verified = result.offers.find((offer) => offer.verification === 'page_verified');
+  assert.ok(verified);
+  assert.equal(verified?.eligible, true);
+  assert.equal(verified?.shippingFee, 0);
+  assert.equal(verified?.totalCashPrice, 389550);
   assert.equal(result.attempt.verification.succeeded, 1);
   assert.equal(result.attempt.status, 'verified');
 });
 
-test('search snippet price alone is discovery evidence and never a decisive offer', async () => {
+test('search snippet price is retained as preliminary market data and never a decisive offer', async () => {
   const result = await researchProviderSource({
     source,
-    target: { kind: 'product', model: 'QWGE43UT1' },
+    target: { kind: 'product', model: 'QWGE43UT1', name: 'QWGE43UT1 EKWBYME78W V3 43인치 패키지' },
     canonicalIdentity: canonical,
     constraints: [],
     publicSearch: async () => [{
       title: 'QWGE43UT1 EKWBYME78W V3 43인치 신품 패키지 299,000원',
       url: 'https://example.com/deal',
-      snippet: '299,000원 무료배송',
+      snippet: '판매가 299,000원 무료배송',
     }],
     directPage: async () => { throw new Error('403 bot blocked by site policy'); },
     now,
   });
 
-  assert.equal(result.offers.length, 0);
+  const preliminary = result.offers.find((offer) => offer.verification === 'search_metadata');
+  assert.ok(preliminary);
+  assert.equal(preliminary?.salePrice, 299000);
+  assert.equal(preliminary?.shippingFee, 0);
+  assert.equal(preliminary?.eligible, false);
+  assert.ok(preliminary?.exclusionReasons.includes('search_metadata_requires_page_verification'));
   assert.ok(result.evidence.some((item) => item.acquisitionMethod === 'search_metadata'));
   assert.equal(result.attempt.verification.failed, 1);
   assert.equal(result.attempt.failureKind, 'blocked_by_site');
