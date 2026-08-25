@@ -109,6 +109,25 @@ export interface CanonicalIdentityMatch {
   confidence: number;
 }
 
+export type RequirementStrength = 'hard' | 'soft';
+export type ConstraintVerification = 'verified_pass' | 'verified_fail' | 'unknown';
+
+export interface ProductConstraint {
+  id: string;
+  label: string;
+  strength: RequirementStrength;
+  kind: 'dimension_min' | 'boolean_required' | 'enum_allowed' | 'text_required';
+  field: string;
+  expected: string | number | boolean | string[];
+  source: 'user' | 'resolved_identity';
+}
+
+export interface ConstraintEvaluation {
+  constraint: ProductConstraint;
+  status: ConstraintVerification;
+  evidence?: string;
+}
+
 export interface ProductMatchResult {
   level: ProductMatchLevel;
   score: number;
