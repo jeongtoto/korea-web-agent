@@ -385,6 +385,7 @@ export async function runAgentResearch(
     identityConfidence: resolution.confidence,
     resolvedTarget: target,
     resolutionAmbiguous: false,
+    ...(resolution.canonicalIdentity ? { canonicalIdentity: resolution.canonicalIdentity } : {}),
     ...(recommendationMode ? { recommendationMode: true, recommendationCandidates: resolution.candidates.slice(0, 8) } : {}),
   };
   const job = await deps.cloudResearch(request, context);
