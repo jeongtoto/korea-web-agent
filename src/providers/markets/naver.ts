@@ -13,8 +13,13 @@ import {
   verifiedSellerOfferFromPage,
 } from '../seller-expansion.ts';
 
-const definition = providerDefinitionById('naver-shopping');
-if (!definition) throw new Error('Naver Shopping provider definition is missing');
+function requireDefinition() {
+  const value = providerDefinitionById('naver-shopping');
+  if (!value) throw new Error('Naver Shopping provider definition is missing');
+  return value;
+}
+
+const definition = requireDefinition();
 
 function compact(value: string | undefined): string {
   return (value ?? '').replace(/\s+/g, ' ').trim();
