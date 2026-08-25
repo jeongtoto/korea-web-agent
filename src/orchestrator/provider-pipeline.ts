@@ -13,6 +13,7 @@ import { deriveExplicitSearchSignals } from '../core/search-signals.ts';
 import type {
   CanonicalProductIdentity,
   EvidenceItem,
+  IdentityVerdict,
   MarketOffer,
   NormalizedTarget,
   ProductConstraint,
@@ -46,13 +47,20 @@ function preliminaryOffer(
   hit: SearchHit,
   target: NormalizedTarget,
   retrievedAt: string,
-  verdict: string,
+  verdict: IdentityVerdict,
 ): MarketOffer | null {
   if (verdict === 'different') return null;
   const offer = buildMarketOffer(hit, target, retrievedAt);
   if (!offer) return null;
   offer.verification = 'search_metadata';
   offer.eligible = false;
+  offer.identityVerdict = verdict;
+  offer.constraintStatus = 'preliminary';
+  offer.fieldVerification = {
+    identity: 'search_metadata',
+    price: 'search_metadata',
+    shipping: offer.shippingFee !== undefined ? 'search_metadata' : 'unverified',
+  };
   if (!offer.exclusionReasons.includes('search_metadata_requires_page_verification')) {
     offer.exclusionReasons.push('search_metadata_requires_page_verification');
   }
@@ -64,7 +72,7 @@ function searchEvidence(
   hit: SearchHit,
   target: NormalizedTarget,
   retrievedAt: string,
-  verdict: string,
+  verdict: IdentityVerdict,
   score: number,
   offer: MarketOffer | null,
 ): EvidenceItem {
@@ -142,6 +150,13 @@ function offerFromPage(
     verification: 'page_verified',
     condition,
     identityScore: identity.confidence,
+    identityVerdict: identity.verdict,
+    constraintStatus,
+    fieldVerification: {
+      identity: 'page_verified',
+      price: 'page_verified',
+      shipping: shippingFee !== undefined ? 'page_verified' : 'unverified',
+    },
     bundleComplete: identity.verdict === 'exact' || identity.verdict === 'same_except_condition',
     eligible,
     salePrice: price,
@@ -167,12 +182,27 @@ function initialAttempt(input: ProviderPipelineInput): ProviderAttempt {
   };
 }
 
-function finishAttempt(attempt: ProviderAttempt): void {
-  attempt.completedAt = new Date().toISOString();
+function usableVerifiedOffer(offer: MarketOffer): boolean {
+  return offer.eligible || (
+    offer.identityVerdict === 'same_except_condition'
+      && offer.constraintStatus === 'eligible'
+      && offer.shippingFee !== undefined
+      && !unavailable(offer.availability)
+  );
+}
+
+function finishAttempt(attempt: ProviderAttempt, now: () => Date): void {
+  attempt.completedAt = now().toISOString();
   if (attempt.offers.eligible > 0) attempt.status = 'verified';
   else if (attempt.verification.failed > 0 && attempt.failureKind) attempt.status = 'failed';
   else if (attempt.identity.exact + attempt.identity.uncertain > 0 || attempt.offers.extracted > 0) attempt.status = 'found_unverified';
   else attempt.status = 'no_match';
+}
+
+function verdictPriority(verdict: 'exact' | 'same_except_condition' | 'uncertain'): number {
+  if (verdict === 'exact') return 0;
+  if (verdict === 'same_except_condition') return 1;
+  return 2;
 }
 
 export async function researchProviderSource(
@@ -195,7 +225,7 @@ export async function researchProviderSource(
   }
 
   attempt.discovery.hitCount = hits.length;
-  const promising: Array<{ hit: SearchHit; verdict: 'exact' | 'uncertain'; score: number }> = [];
+  const promising: Array<{ hit: SearchHit; verdict: 'exact' | 'same_except_condition' | 'uncertain'; score: number }> = [];
   for (const hit of hits) {
     const candidate = candidateIdentityFromText(`${hit.title} ${hit.snippet}`);
     const match = compareCanonicalIdentity(input.canonicalIdentity, candidate);
@@ -211,12 +241,12 @@ export async function researchProviderSource(
     }
     evidence.push(searchEvidence(input.source, hit, input.target, retrievedAt, match.verdict, match.confidence, discoveryOffer));
 
-    if (match.verdict === 'exact' || match.verdict === 'uncertain') {
+    if (match.verdict === 'exact' || match.verdict === 'same_except_condition' || match.verdict === 'uncertain') {
       promising.push({ hit, verdict: match.verdict, score: match.confidence });
     }
   }
 
-  promising.sort((a, b) => (a.verdict === b.verdict ? b.score - a.score : a.verdict === 'exact' ? -1 : 1));
+  promising.sort((a, b) => verdictPriority(a.verdict) - verdictPriority(b.verdict) || b.score - a.score);
   for (const candidate of promising.slice(0, 3)) {
     attempt.verification.attempted += 1;
     try {
@@ -228,7 +258,7 @@ export async function researchProviderSource(
       if (offer) {
         offers.push(offer);
         attempt.offers.extracted += 1;
-        if (offer.eligible) attempt.offers.eligible += 1;
+        if (usableVerifiedOffer(offer)) attempt.offers.eligible += 1;
       }
     } catch (error) {
       attempt.verification.failed += 1;
@@ -237,6 +267,6 @@ export async function researchProviderSource(
     }
   }
 
-  finishAttempt(attempt);
+  finishAttempt(attempt, input.now);
   return { evidence, offers, attempt };
 }
