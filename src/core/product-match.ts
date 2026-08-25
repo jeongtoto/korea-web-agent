@@ -43,6 +43,11 @@ function hitText(hit: SearchHit): string {
   return `${hit.title} ${hit.snippet} ${decodedUrl}`;
 }
 
+/**
+ * Broad discovery/evidence scorer only. A result labeled exact_product here is
+ * not sufficient for purchase ranking; decisive offer eligibility must use
+ * the canonical identity comparator after bundle/option verification.
+ */
 export function matchEvidenceToProduct(target: NormalizedTarget, hit: SearchHit): ProductMatchResult {
   const text = hitText(hit);
   if (target.productId && text.includes(target.productId)) {
