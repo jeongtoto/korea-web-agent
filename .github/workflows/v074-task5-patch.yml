@@ -15,56 +15,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: feature/v0.7.4-seller-verification-graduation
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Patch deterministic mandatory fee facts
+      - name: Fix mandatory fee type narrowing
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
           path = Path('src/providers/direct-page.ts')
           text = path.read_text()
-          old = "  shippingFee?: number;\n  attributes?: Record<string, string | number | boolean>;\n"
-          new = "  shippingFee?: number;\n  mandatoryPurchaseFee?: number;\n  mandatoryFeeSignal?: boolean;\n  attributes?: Record<string, string | number | boolean>;\n"
+          old = "    if (localAmounts.length === 1) amounts.add(localAmounts[0]);\n  }\n  if (!signaled) return { mandatoryFeeSignal: false };\n  return amounts.size === 1\n    ? { mandatoryFeeSignal: true, mandatoryPurchaseFee: [...amounts][0] }\n    : { mandatoryFeeSignal: true };\n"
+          new = "    const onlyAmount = localAmounts[0];\n    if (localAmounts.length === 1 && onlyAmount !== undefined) amounts.add(onlyAmount);\n  }\n  if (!signaled) return { mandatoryFeeSignal: false };\n  const onlyAmount = amounts.size === 1 ? [...amounts][0] : undefined;\n  return onlyAmount !== undefined\n    ? { mandatoryFeeSignal: true, mandatoryPurchaseFee: onlyAmount }\n    : { mandatoryFeeSignal: true };\n"
           if old not in text:
-              raise SystemExit('DirectProductFacts marker missing')
-          text = text.replace(old, new, 1)
-          marker = "function metaContent(html: string, attr: 'name' | 'property', key: string): string | undefined {\n"
-          fee_lines = [
-              "function deterministicMandatoryFeeFromHtml(html: string): { mandatoryFeeSignal: boolean; mandatoryPurchaseFee?: number } {",
-              "  const text = visiblePageText(html);",
-              "  const feeAnchor = /(?:설치비|설치\\s*비용|조립비|배송\\s*설치비|의무\\s*비용|필수\\s*비용|mandatory\\s*fee|required\\s*fee)/gi;",
-              "  const mandatory = /(?:필수|의무|반드시|구매\\s*시\\s*부과|required|mandatory)/i;",
-              "  const amounts = new Set<number>();",
-              "  let signaled = false;",
-              "  for (const match of text.matchAll(feeAnchor)) {",
-              "    const index = match.index ?? 0;",
-              "    const context = text.slice(Math.max(0, index - 70), Math.min(text.length, index + match[0].length + 70));",
-              "    if (!mandatory.test(context)) continue;",
-              "    signaled = true;",
-              "    const localAmounts = [...context.matchAll(/(\\d{1,3}(?:,\\d{3})+|\\d{3,})\\s*원/g)]",
-              "      .map((item) => numericPrice(item[1]))",
-              "      .filter((value): value is number => value !== undefined && value >= 0);",
-              "    if (localAmounts.length === 1) amounts.add(localAmounts[0]);",
-              "  }",
-              "  if (!signaled) return { mandatoryFeeSignal: false };",
-              "  return amounts.size === 1",
-              "    ? { mandatoryFeeSignal: true, mandatoryPurchaseFee: [...amounts][0] }",
-              "    : { mandatoryFeeSignal: true };",
-              "}",
-              "",
-          ]
-          fee_func = "\n".join(fee_lines)
-          if marker not in text:
-              raise SystemExit('metaContent marker missing')
-          text = text.replace(marker, fee_func + marker, 1)
-          old_static = "  const staticShippingFee = product?.offers?.shippingFee === undefined ? deterministicShippingFeeFromHtml(html) : undefined;\n  const staticFacts: DirectProductFacts | undefined = staticShippingFee !== undefined ? { shippingFee: staticShippingFee } : undefined;\n  const facts = mergeFacts(mergeFacts(productFacts(product), staticFacts), extraction?.facts);\n"
-          new_static = "  const staticShippingFee = product?.offers?.shippingFee === undefined ? deterministicShippingFeeFromHtml(html) : undefined;\n  const mandatoryFee = deterministicMandatoryFeeFromHtml(html);\n  const staticFacts: DirectProductFacts = {};\n  if (staticShippingFee !== undefined) staticFacts.shippingFee = staticShippingFee;\n  if (mandatoryFee.mandatoryFeeSignal) {\n    staticFacts.mandatoryFeeSignal = true;\n    if (mandatoryFee.mandatoryPurchaseFee !== undefined) staticFacts.mandatoryPurchaseFee = mandatoryFee.mandatoryPurchaseFee;\n  }\n  const facts = mergeFacts(mergeFacts(productFacts(product), Object.keys(staticFacts).length ? staticFacts : undefined), extraction?.facts);\n"
-          if old_static not in text:
-              raise SystemExit('static facts marker missing')
-          text = text.replace(old_static, new_static, 1)
-          path.write_text(text)
+              raise SystemExit('mandatory fee narrowing marker missing')
+          path.write_text(text.replace(old, new, 1))
           PY
       - name: Commit patch
         shell: bash
@@ -73,5 +35,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/providers/direct-page.ts
           git diff --cached --check
-          git commit -m "feat: extract deterministic mandatory seller fees"
+          git commit -m "fix: narrow mandatory fee amounts safely"
           git push origin HEAD:feature/v0.7.4-seller-verification-graduation
