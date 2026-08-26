@@ -101,6 +101,36 @@ test('verified hard-constraint failure can never enter the ranking even when it 
   assert.deepEqual(ranked.map((item) => item.candidate.key), ['good']);
 });
 
+test('preliminary hard-constraint candidates never enter final recommendations', () => {
+  const plan = planShoppingResearch('50만원 이하 43인치 4K 이동식 TV 가성비 추천해줘');
+  const verified = tvCandidate('verified', 'VERIFIED43');
+  const preliminary = tvCandidate('preliminary', 'UNKNOWN43', {
+    constraintState: 'PRELIMINARY',
+    facts: {
+      screenSizeInch: fact(43),
+      portableStand: fact(true),
+    },
+  });
+
+  const ranked = rankShoppingCandidates({
+    plan,
+    candidates: [preliminary, verified],
+    reviews: [
+      review(preliminary, 'display_quality', 'positive', 1),
+      review(preliminary, 'stand_stability', 'positive', 2),
+    ],
+    offers: [offer(preliminary, 199_000), offer(verified, 399_000)],
+  });
+
+  assert.deepEqual(ranked.map((item) => item.candidate.key), ['verified']);
+  assert.deepEqual(rankShoppingCandidates({
+    plan,
+    candidates: [preliminary],
+    reviews: [],
+    offers: [offer(preliminary, 199_000)],
+  }), []);
+});
+
 test('a materially better 399k product can beat a mediocre 359k product on value instead of raw lowest-price ordering', () => {
   const plan = planShoppingResearch('50만원 이하 43인치 4K 이동식 TV 가성비 좋은 거 추천해줘. 화질과 이동성이 중요해.');
   const cheap = tvCandidate('cheap', 'CHEAP43', {
