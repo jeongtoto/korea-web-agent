@@ -99,6 +99,27 @@ test('category recommendation enters Shopping Intelligence before exact-product 
   assert.equal(result.product.ambiguous, false);
 });
 
+test('unsupported recommendation category preserves the legacy resolver path', async () => {
+  let shoppingCalls = 0;
+  let publicSearchCalls = 0;
+
+  const result = await runAgentResearch({ query: '1670x2075 매트리스용 서랍형 침대 프레임 추천해줘' }, {
+    publicSearch: async () => {
+      publicSearchCalls += 1;
+      return [];
+    },
+    cloudResearch: async () => exactJob('1670x2075 매트리스용 서랍형 침대 프레임 추천해줘'),
+    shoppingResearch: async () => {
+      shoppingCalls += 1;
+      return shoppingResult();
+    },
+  });
+
+  assert.equal(shoppingCalls, 0);
+  assert.ok(publicSearchCalls > 0);
+  assert.equal(result.shopping, undefined);
+});
+
 test('exact model price request preserves the legacy exact-product path', async () => {
   let shoppingCalls = 0;
   let cloudCalls = 0;
