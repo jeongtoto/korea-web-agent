@@ -1,11 +1,10 @@
 import { assertPublicUrl } from '../core/policy.ts';
 import type {
-  MarketProviderId,
   SellerResolutionMethod,
   SellerVerificationTrace,
 } from '../core/types.ts';
 import type { ExtractedSellerLink } from './market-extractor.ts';
-import type { SellerCandidate } from './market-provider.ts';
+import type { MarketProviderId, SellerCandidate } from './market-provider.ts';
 import { canonicalizeSellerUrl } from './offer-dedupe.ts';
 
 export interface EmbeddedSellerRecord {
@@ -220,7 +219,7 @@ function candidateFromRecord(input: {
       comparisonUrl: input.comparisonUrl,
       method: input.method,
       sellerUrl,
-      advertisedPrice: input.record.advertisedPrice,
+      ...(input.record.advertisedPrice !== undefined ? { advertisedPrice: input.record.advertisedPrice } : {}),
       retrievedAt: input.retrievedAt,
     }),
   };
@@ -248,8 +247,8 @@ export function resolveSellerCandidatesFromPage(input: {
       const productId = 'productId' in item.record ? item.record.productId : undefined;
       const key = sellerIdentityKey({
         url,
-        sellerName: item.record.sellerName,
-        productId,
+        ...(item.record.sellerName ? { sellerName: item.record.sellerName } : {}),
+        ...(productId ? { productId } : {}),
       });
       if (seen.has(key)) continue;
       seen.add(key);
