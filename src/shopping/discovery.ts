@@ -10,7 +10,8 @@ export async function discoverShoppingCandidates(
   plan: ShoppingResearchPlan,
   search: (query: string) => Promise<SearchHit[]>,
 ): Promise<ShoppingRawHit[]> {
-  const buckets = await Promise.all(plan.discoveryQueries.map(async (query): Promise<DiscoveryBucket> => {
+  const candidateQueries = plan.discoveryQueries.filter((query) => query.sourceGroup !== 'review');
+  const buckets = await Promise.all(candidateQueries.map(async (query): Promise<DiscoveryBucket> => {
     try {
       const hits = await search(query.query);
       return { query, hits: hits.slice(0, Math.max(0, query.maxHits)) };
