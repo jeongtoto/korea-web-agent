@@ -281,6 +281,18 @@ function overallEvidenceConfidence(dimensions: ShoppingConfidenceDimensions): nu
   );
 }
 
+function productEvidenceConfidence(dimensions: ShoppingConfidenceDimensions): number {
+  const weighted =
+    dimensions.identity * 0.18 +
+    dimensions.hardConstraints * 0.18 +
+    dimensions.officialSpecs * 0.17 +
+    dimensions.reviewConsensus * 0.17 +
+    dimensions.negativeCoverage * 0.08 +
+    dimensions.durability * 0.07 +
+    dimensions.serviceWarranty * 0.07;
+  return clamp(weighted / 0.92);
+}
+
 function evidenceUrls(candidate: ShoppingCandidate, reviews: ReviewEvidence[], economics: CandidateEconomics): string[] {
   return [...new Set([
     ...candidate.sourceUrls,
@@ -336,18 +348,18 @@ export function rankShoppingCandidates(input: RankShoppingInput): CandidateAsses
         ? beddingScores(candidate, consensus, 0)
         : { fit: 1, quality: 0.55, reviewConsensus: aggregateCategoryReviewScore(consensus), serviceWarranty: 0.5, value: 0 };
     const merit = meritScore(input.plan.dimensionWeights, preliminaryDimensions);
-    const valueAssessment = assessValue({
+    const visiblePrice = candidateEconomics.verifiedCashPrice ?? candidateEconomics.indicativePrice;
+    // Purchase-price certainty is kept out of product merit. If the exact page exposes the
+    // same item price but shipping is unresolved, recommendation merit remains unchanged;
+    // only priceVerification confidence and best-value eligibility are downgraded later.
+    const rankingValue = assessValue({
       merit,
-      evidenceConfidence,
-      priceStatus: candidateEconomics.priceStatus,
-      ...(candidateEconomics.verifiedCashPrice !== undefined
-        ? { price: candidateEconomics.verifiedCashPrice }
-        : candidateEconomics.indicativePrice !== undefined
-          ? { price: candidateEconomics.indicativePrice }
-          : {}),
+      evidenceConfidence: productEvidenceConfidence(confidence),
+      priceStatus: visiblePrice !== undefined ? 'verified' : 'unknown',
+      ...(visiblePrice !== undefined ? { price: visiblePrice } : {}),
       cohortPrices: priceCohort,
     });
-    const dimensionScores = { ...preliminaryDimensions, value: valueAssessment.qualityAdjustedValue };
+    const dimensionScores = { ...preliminaryDimensions, value: rankingValue.qualityAdjustedValue };
     const recommendationScore = weightedScore(input.plan.dimensionWeights, dimensionScores);
     const explanations = explanation(dimensionScores, consensus, candidateEconomics);
     const assessment: CandidateAssessment = {
