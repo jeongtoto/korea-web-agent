@@ -145,7 +145,7 @@ function portableDisplayQueries(question: string): DiscoveryQuery[] {
   const resolution = /\b4k\b|\buhd\b/i.test(question) ? '4K' : 'UHD';
   const base = `${size}인치 ${resolution} 이동식 TV`;
   return uniqueQueries([
-    { id: 'display-general', query: base, maxHits: 10, sourceGroup: 'general' },
+    { id: 'display-general', query: base, maxHits: 30, sourceGroup: 'general' },
     { id: 'display-smart', query: `${size}인치 UHD 이동형 스마트 TV`, maxHits: 10, sourceGroup: 'general' },
     { id: 'display-standbyme', query: `${size}인치 스탠바이미 대체 이동식 TV`, maxHits: 10, sourceGroup: 'general' },
     { id: 'display-naver', query: `${base} site:shopping.naver.com`, maxHits: 10, sourceGroup: 'market' },
@@ -161,7 +161,7 @@ function beddingQueries(question: string): DiscoveryQuery[] {
   const type = /차렵/i.test(question) ? '차렵이불' : '이불';
   const base = `${size} ${season}${type}`;
   return uniqueQueries([
-    { id: 'bedding-general', query: base, maxHits: 10, sourceGroup: 'general' },
+    { id: 'bedding-general', query: base, maxHits: 30, sourceGroup: 'general' },
     { id: 'bedding-q', query: `Q 퀸 ${season}${type}`, maxHits: 10, sourceGroup: 'general' },
     { id: 'bedding-care', query: `${base} 세탁 촉감 가성비`, maxHits: 10, sourceGroup: 'general' },
     { id: 'bedding-naver', query: `${base} site:shopping.naver.com`, maxHits: 10, sourceGroup: 'market' },
@@ -174,7 +174,7 @@ function discoveryQueries(categoryId: ShoppingCategoryId, mode: ShoppingMode, qu
   if (mode === 'EXACT_PRODUCT') return [];
   if (categoryId === 'portable_display') return portableDisplayQueries(question);
   if (categoryId === 'bedding') return beddingQueries(question);
-  return [{ id: 'general', query: compact(question), maxHits: 10, sourceGroup: 'general' }];
+  return [{ id: 'general', query: compact(question), maxHits: 30, sourceGroup: 'general' }];
 }
 
 export function planShoppingResearch(question: string): ShoppingResearchPlan {
