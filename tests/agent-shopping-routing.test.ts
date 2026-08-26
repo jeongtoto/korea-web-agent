@@ -157,6 +157,39 @@ test('shopping output stays insufficient when every finalist still needs verific
   });
 
   assert.equal(result.decision, 'INSUFFICIENT');
+  assert.match(result.summary, /유망한 잠정 후보/);
+  assert.doesNotMatch(result.summary, /1순위 추천/);
+});
+
+test('strong recommendation permits BUY wording', async () => {
+  const shopping = shoppingResultWithTier('STRONG_RECOMMENDATION');
+  shopping.assessments[0]!.recommendationScore = 0.84;
+  shopping.assessments[0]!.evidenceConfidence = 0.82;
+
+  const result = await runAgentResearch({ query: '50만원 이하 43인치 4K 이동식 TV 추천해줘' }, {
+    publicSearch: async () => { throw new Error('legacy resolver must not run'); },
+    cloudResearch: async () => { throw new Error('legacy exact research must not run'); },
+    shoppingResearch: async () => shopping,
+  });
+
+  assert.equal(result.decision, 'BUY');
+  assert.match(result.summary, /현재 기준 1순위 추천/);
+  assert.match(result.summary, /MODEL-1/);
+});
+
+test('caution-only result cannot use provisional or BUY wording', async () => {
+  const shopping = shoppingResultWithTier('CAUTION');
+  shopping.assessments[0]!.recommendationScore = 0.61;
+
+  const result = await runAgentResearch({ query: '50만원 이하 43인치 4K 이동식 TV 추천해줘' }, {
+    publicSearch: async () => { throw new Error('legacy resolver must not run'); },
+    cloudResearch: async () => { throw new Error('legacy exact research must not run'); },
+    shoppingResearch: async () => shopping,
+  });
+
+  assert.equal(result.decision, 'INSUFFICIENT');
+  assert.match(result.summary, /주의 신호/);
+  assert.doesNotMatch(result.summary, /유망한 잠정 후보|1순위 추천/);
 });
 
 test('BUY output selects the best confirmed finalist instead of a higher-scoring provisional finalist', async () => {
