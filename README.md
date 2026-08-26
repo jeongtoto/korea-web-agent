@@ -1,4 +1,4 @@
-# Korea Web Agent v0.7.2
+# Korea Web Agent v0.7.3
 
 Korea Web Agent is a read-only Korean product-research backend designed to be called from a dedicated Custom GPT. The primary experience is now natural-language product research inside ChatGPT; the existing PWA remains available as a diagnostic/manual testing surface.
 
@@ -9,6 +9,14 @@ Example:
 ```
 
 The agent resolves an exact product or a recommendation category, gathers attributable public evidence, normalizes multi-market offers, and conditionally asks a locally authenticated PC browser to verify up to eight difficult commerce pages. It separates cash, owned-card, public conditional, account-personalized, points-adjusted, refurb/open-box, and used prices and returns a conservative `BUY / WAIT / SKIP / INSUFFICIENT` result plus Best 3 recommendations when appropriate.
+
+## v0.7.3 Recommendation Output Contract
+
+- Shopping Intelligence returns `BUY` only when at least one finalist is `STRONG_RECOMMENDATION` or `RECOMMENDED`.
+- `PROMISING_NEEDS_VERIFICATION` and `CAUTION` finalists keep the aggregate verdict at `INSUFFICIENT`; they cannot be phrased as confirmed buys.
+- When a higher-scoring provisional finalist outranks a lower-scoring confirmed finalist, result confidence, reasons, strengths, and headline recommendation are anchored to the confirmed finalist.
+- Provisional-only output explicitly identifies a tentative lead that still needs verification; caution-only output explicitly avoids purchase-recommendation language.
+- Ranking, exact-price verification, Provider v2, and Relay behavior are unchanged.
 
 ## v0.7.2 Evidence-Aware Recommendation
 
