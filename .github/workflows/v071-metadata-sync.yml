@@ -1,0 +1,76 @@
+name: v0.7.1 metadata sync
+
+on:
+  push:
+    branches: [feature/v0.7.1-live-verification-hardening]
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v0.7.1-live-verification-hardening
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Align package and lockfile version
+        run: npm version 0.7.1 --no-git-tag-version
+      - name: Align release metadata
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          replacements = {
+              'netlify/functions/health.mjs': [('0.6.2', '0.7.1')],
+              'openapi/korea-web-agent-action.yaml': [('version: 0.6.2', 'version: 0.7.1')],
+              '.github/workflows/production-smoke.yml': [('0.6.2', '0.7.1'), ('v0.6.2', 'v0.7.1')],
+              'tests/version-metadata.test.ts': [('0.6.2', '0.7.1'), ('0\\.6\\.2', '0\\.7\\.1'), ('v0\\.6\\.2', 'v0\\.7\\.1')],
+              'README.md': [('v0.6.2', 'v0.7.1')],
+          }
+          for name, pairs in replacements.items():
+              path = Path(name)
+              text = path.read_text(encoding='utf-8')
+              for old, new in pairs:
+                  text = text.replace(old, new)
+              path.write_text(text, encoding='utf-8')
+
+          readme = Path('README.md')
+          text = readme.read_text(encoding='utf-8')
+          marker = '## v0.7.1 Provider v2 coverage\n\n'
+          hardening = (
+              '## v0.7.1 Live Verification Hardening\n\n'
+              '- Explicit non-Naver product URLs preserve the requested canonical model, size, variant, and required bundle identity instead of regressing to ambiguous search-only resolution.\n'
+              '- Static seller pages promote shipping only when free or fixed mandatory shipping is deterministic; conditional, regional, collect-on-delivery, installation-dependent, and extra fees remain unresolved.\n'
+              '- Danawa, Enuri, and Naver Shopping comparison portals automatically expose attributable downstream seller links to the default production verification path; comparison/search prices remain discovery-only.\n'
+              '- Relay availability diagnostics distinguish `never_seen`, `online`, and `stale` heartbeats without exposing secrets, signatures, nonces, or queued payloads.\n'
+              '- The WideView `QWGE43UT1 + EKWBYME78W(V3)` benchmark rejects V2, body-only, metadata-only, and unknown-shipping decoys before decisive ranking.\n'
+              '- Feature-branch pushes run the full CI suite so regressions are detected before merge.\n\n'
+          )
+          if hardening not in text and marker in text:
+              text = text.replace(marker, hardening + marker, 1)
+          text = text.replace(
+              'deterministic WideView v0.7.1 end-to-end acceptance.',
+              'deterministic WideView v0.7.1 end-to-end acceptance, exact-URL regression, seller-link wiring, deterministic shipping, and Relay heartbeat diagnostics.'
+          )
+          readme.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit synchronized metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json package-lock.json netlify/functions/health.mjs openapi/korea-web-agent-action.yaml .github/workflows/production-smoke.yml tests/version-metadata.test.ts README.md
+          if git diff --cached --quiet; then
+            echo 'Metadata already synchronized.'
+            exit 0
+          fi
+          git commit -m 'chore: align v0.7.1 release metadata [metadata-sync]'
+          git push origin HEAD:feature/v0.7.1-live-verification-hardening
