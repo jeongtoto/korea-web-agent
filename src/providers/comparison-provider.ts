@@ -62,7 +62,7 @@ export function createComparisonMarketProvider(
       const page = await context.directPage(candidate.url);
       const identity = directPageIdentityMatch(context.canonicalIdentity, page);
       if (identity.verdict !== 'exact') return [];
-      return sellerCandidatesFromComparisonPage(this, candidate, page);
+      return sellerCandidatesFromComparisonPage(this, candidate, page, context.now().toISOString());
     },
     async verify(candidate, context) {
       const url = 'sellerUrl' in candidate ? candidate.sellerUrl : candidate.url;
@@ -85,6 +85,7 @@ export function createComparisonMarketProvider(
         discoveredBy: 'discoveredFrom' in candidate ? candidate.discoveredFrom : [definition.id],
         ...('sellerName' in candidate && candidate.sellerName ? { sellerName: candidate.sellerName } : {}),
         ...('sellerProductId' in candidate && candidate.sellerProductId ? { sellerProductId: candidate.sellerProductId } : {}),
+        ...('verificationTrace' in candidate && candidate.verificationTrace ? { verificationTrace: candidate.verificationTrace } : {}),
       });
     },
   };
