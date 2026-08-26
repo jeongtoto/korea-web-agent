@@ -1,6 +1,7 @@
 import { assertPublicUrl } from '../core/policy.ts';
 import type { EvidenceItem, PromotionState, SellerInfo } from '../core/types.ts';
 import { extractComparisonSellerLinks, isComparisonPortalHost } from './comparison-links.ts';
+import { extractEmbeddedSellerRecords, type EmbeddedSellerRecord } from './seller-resolution.ts';
 import {
   matchingMarketExtractor,
   type ExtractedSellerLink,
@@ -47,6 +48,7 @@ export interface DirectPageResult {
   product?: StructuredProduct;
   facts?: DirectProductFacts;
   sellerLinks?: ExtractedSellerLink[];
+  embeddedSellerRecords?: EmbeddedSellerRecord[];
   promotion?: PromotionState;
   sellerInfo?: SellerInfo;
   evidence: EvidenceItem[];
@@ -350,6 +352,7 @@ export async function fetchDirectPage(
   const facts = mergeFacts(mergeFacts(productFacts(product), staticFacts), extraction?.facts);
   const fallbackSellerLinks = isComparisonPortalHost(url) ? extractComparisonSellerLinks(html, url) : [];
   const sellerLinks = extraction?.sellerLinks?.length ? extraction.sellerLinks : fallbackSellerLinks;
+  const embeddedSellerRecords = isComparisonPortalHost(url) ? extractEmbeddedSellerRecords(html, url) : [];
   const evidence: EvidenceItem[] = [];
 
   if (title || description) {
@@ -396,6 +399,7 @@ export async function fetchDirectPage(
   if (product) result.product = product;
   if (facts) result.facts = facts;
   if (sellerLinks.length) result.sellerLinks = sellerLinks.map((item) => ({ ...item }));
+  if (embeddedSellerRecords.length) result.embeddedSellerRecords = embeddedSellerRecords.map((item) => ({ ...item }));
   if (extraction?.promotion) result.promotion = { ...extraction.promotion };
   if (extraction?.sellerInfo) result.sellerInfo = { ...extraction.sellerInfo };
   return result;
