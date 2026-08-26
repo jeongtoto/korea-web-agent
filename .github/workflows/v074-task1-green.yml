@@ -27,57 +27,74 @@ jobs:
           types = Path('src/core/types.ts')
           text = types.read_text()
           old = "export type ShippingStatus = 'free' | 'paid' | 'conditional_free' | 'unknown';\n\nexport interface ShippingQuote {"
-          new = """export type ShippingStatus = 'free' | 'paid' | 'conditional_free' | 'unknown';
-
-export const SELLER_RESOLUTION_METHODS = [
-  'static_link',
-  'embedded_metadata',
-  'redirect_resolution',
-  'fallback_search',
-] as const;
-export type SellerResolutionMethod = (typeof SELLER_RESOLUTION_METHODS)[number];
-
-export const MANDATORY_FEE_STATUSES = ['required', 'not_applicable', 'unknown'] as const;
-export type MandatoryFeeStatus = (typeof MANDATORY_FEE_STATUSES)[number];
-
-export interface SellerVerificationTrace {
-  comparisonSource?: string;
-  comparisonUrl?: string;
-  resolutionMethod?: SellerResolutionMethod;
-  originalSellerUrl?: string;
-  resolvedSellerUrl?: string;
-  identityVerdict?: IdentityVerdict;
-  bundleVerdict?: 'complete' | 'incomplete' | 'unknown';
-  priceStatus?: OfferVerification | 'missing';
-  shippingStatus?: ShippingStatus;
-  availabilityStatus?: 'available' | 'unavailable' | 'unknown';
-  mandatoryFeeStatus?: MandatoryFeeStatus;
-  comparisonAdvertisedPrice?: number;
-  sellerVerifiedPrice?: number;
-  mandatoryPurchaseFee?: number;
-  totalCashPrice?: number;
-  rejectionReasons: string[];
-  retrievedAt: string;
-}
-
-export interface ShippingQuote {"""
+          new = (
+              "export type ShippingStatus = 'free' | 'paid' | 'conditional_free' | 'unknown';\n\n"
+              "export const SELLER_RESOLUTION_METHODS = [\n"
+              "  'static_link',\n"
+              "  'embedded_metadata',\n"
+              "  'redirect_resolution',\n"
+              "  'fallback_search',\n"
+              "] as const;\n"
+              "export type SellerResolutionMethod = (typeof SELLER_RESOLUTION_METHODS)[number];\n\n"
+              "export const MANDATORY_FEE_STATUSES = ['required', 'not_applicable', 'unknown'] as const;\n"
+              "export type MandatoryFeeStatus = (typeof MANDATORY_FEE_STATUSES)[number];\n\n"
+              "export interface SellerVerificationTrace {\n"
+              "  comparisonSource?: string;\n"
+              "  comparisonUrl?: string;\n"
+              "  resolutionMethod?: SellerResolutionMethod;\n"
+              "  originalSellerUrl?: string;\n"
+              "  resolvedSellerUrl?: string;\n"
+              "  identityVerdict?: IdentityVerdict;\n"
+              "  bundleVerdict?: 'complete' | 'incomplete' | 'unknown';\n"
+              "  priceStatus?: OfferVerification | 'missing';\n"
+              "  shippingStatus?: ShippingStatus;\n"
+              "  availabilityStatus?: 'available' | 'unavailable' | 'unknown';\n"
+              "  mandatoryFeeStatus?: MandatoryFeeStatus;\n"
+              "  comparisonAdvertisedPrice?: number;\n"
+              "  sellerVerifiedPrice?: number;\n"
+              "  mandatoryPurchaseFee?: number;\n"
+              "  totalCashPrice?: number;\n"
+              "  rejectionReasons: string[];\n"
+              "  retrievedAt: string;\n"
+              "}\n\n"
+              "export interface ShippingQuote {"
+          )
           assert text.count(old) == 1, f'core insertion count={text.count(old)}'
           text = text.replace(old, new)
 
           old_offer = "  installationFee?: number;\n  mandatoryFees?: number[];\n  promotion?: PromotionState;"
-          new_offer = "  installationFee?: number;\n  mandatoryFees?: number[];\n  mandatoryPurchaseFee?: number;\n  mandatoryFeeStatus?: MandatoryFeeStatus;\n  verificationTrace?: SellerVerificationTrace;\n  promotion?: PromotionState;"
+          new_offer = (
+              "  installationFee?: number;\n"
+              "  mandatoryFees?: number[];\n"
+              "  mandatoryPurchaseFee?: number;\n"
+              "  mandatoryFeeStatus?: MandatoryFeeStatus;\n"
+              "  verificationTrace?: SellerVerificationTrace;\n"
+              "  promotion?: PromotionState;"
+          )
           assert text.count(old_offer) == 1, f'offer insertion count={text.count(old_offer)}'
           types.write_text(text.replace(old_offer, new_offer))
 
           provider = Path('src/providers/market-provider.ts')
           text = provider.read_text()
           old_import = "  ProductConstraint,\n} from '../core/types.ts';"
-          new_import = "  ProductConstraint,\n  SellerResolutionMethod,\n  SellerVerificationTrace,\n} from '../core/types.ts';"
+          new_import = (
+              "  ProductConstraint,\n"
+              "  SellerResolutionMethod,\n"
+              "  SellerVerificationTrace,\n"
+              "} from '../core/types.ts';"
+          )
           assert text.count(old_import) == 1, f'provider import count={text.count(old_import)}'
           text = text.replace(old_import, new_import)
 
           old_candidate = "  advertisedPrice?: number;\n  advertisedShipping?: number;\n}"
-          new_candidate = "  advertisedPrice?: number;\n  advertisedShipping?: number;\n  resolutionMethod?: SellerResolutionMethod;\n  originalSellerUrl?: string;\n  verificationTrace?: SellerVerificationTrace;\n}"
+          new_candidate = (
+              "  advertisedPrice?: number;\n"
+              "  advertisedShipping?: number;\n"
+              "  resolutionMethod?: SellerResolutionMethod;\n"
+              "  originalSellerUrl?: string;\n"
+              "  verificationTrace?: SellerVerificationTrace;\n"
+              "}"
+          )
           assert text.count(old_candidate) == 1, f'candidate insertion count={text.count(old_candidate)}'
           provider.write_text(text.replace(old_candidate, new_candidate))
           PY
