@@ -1,3 +1,4 @@
+import { isRelayDomainAllowed } from '../core/policy.ts';
 import type { ExtractedSellerLink } from './market-extractor.ts';
 
 function attr(attrs: string, name: string): string | undefined {
@@ -15,6 +16,17 @@ function numericWon(value: string | undefined): number | undefined {
   if (!match?.[1]) return undefined;
   const number = Number(match[1].replace(/,/g, ''));
   return Number.isFinite(number) && number > 0 ? number : undefined;
+}
+
+function knownCommerceHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, '');
+  if (isRelayDomainAllowed(host)) return true;
+  return host === 'e-himart.co.kr'
+    || host.endsWith('.e-himart.co.kr')
+    || host === 'store.kakao.com'
+    || host.endsWith('.store.kakao.com')
+    || host === 'toss.im'
+    || host.endsWith('.toss.im');
 }
 
 export function extractComparisonSellerLinks(
@@ -35,14 +47,20 @@ export function extractComparisonSellerLinks(
       continue;
     }
     if (!['http:', 'https:'].includes(url.protocol)) continue;
+
     const sameHost = url.hostname.toLowerCase() === baseUrl.hostname.toLowerCase();
-    if (sameHost && !/(bridge|redirect|outlink|seller|shop|linkprice|mall)/i.test(`${url.pathname}${url.search}`)) continue;
-    const key = url.toString();
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const sellerBridge = sameHost && /(bridge|redirect|outlink|seller|shop|linkprice|mall)/i.test(`${url.pathname}${url.search}`);
+    if (sameHost && !sellerBridge) continue;
+
     const label = stripTags(match[4] ?? '');
     const sellerName = attr(attrs, 'data-seller-name') ?? attr(attrs, 'data-mall-name') ?? attr(attrs, 'title');
     const advertisedPrice = numericWon(attr(attrs, 'data-price')) ?? numericWon(label);
+    const attributable = sellerBridge || Boolean(sellerName) || advertisedPrice !== undefined || knownCommerceHost(url.hostname);
+    if (!attributable) continue;
+
+    const key = url.toString();
+    if (seen.has(key)) continue;
+    seen.add(key);
     const advertisedShipping = /(?:무료\s*배송|무료배송|배송비\s*[:：]?\s*0\s*원)/i.test(label) ? 0 : undefined;
     links.push({
       url: key,
