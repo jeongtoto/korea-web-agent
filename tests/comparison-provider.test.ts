@@ -164,3 +164,42 @@ test('comparison page with non-exact canonical identity does not expand downstre
   assert.equal(sellerFetches, 0);
   assert.deepEqual(offers, []);
 });
+
+test('embedded-only Danawa seller enters downstream exact seller verification', async () => {
+  const comparisonUrl = 'https://prod.danawa.com/info/?pcode=127';
+  const sellerUrl = 'https://www.11st.co.kr/products/5?option=V3';
+  let sellerFetches = 0;
+  const ctx = context(async (url) => {
+    if (url.includes('danawa.com')) {
+      return {
+        url: comparisonUrl,
+        title: '와이드뷰 QWGE43UT1 EKWBYME78W V3 43인치 신품 패키지 가격비교',
+        facts: { name: 'QWGE43UT1 EKWBYME78W V3 43인치 신품 패키지', model: 'QWGE43UT1' },
+        sellerLinks: [],
+        embeddedSellerRecords: [{
+          url: sellerUrl,
+          sellerName: '판매자B',
+          productId: 'seller-5',
+          advertisedPrice: 409000,
+        }],
+        evidence: [],
+      };
+    }
+    sellerFetches += 1;
+    return sellerPage(sellerUrl, 409000, 0);
+  });
+
+  const offers = await expandAndVerifySellers(
+    danawaProvider,
+    comparisonCandidate('danawa', comparisonUrl),
+    ctx,
+    createVerificationCache<DirectPageResult>(),
+  );
+
+  assert.equal(sellerFetches, 1);
+  assert.equal(offers.length, 1);
+  assert.equal(offers[0]?.salePrice, 409000);
+  assert.equal(offers[0]?.totalCashPrice, 409000);
+  assert.equal(offers[0]?.verificationTrace?.resolutionMethod, 'embedded_metadata');
+  assert.equal(offers[0]?.verificationTrace?.comparisonAdvertisedPrice, 409000);
+});
