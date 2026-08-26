@@ -108,12 +108,6 @@ function deterministicShippingFeeFromHtml(html: string): number | undefined {
     }
   }
 
-  for (const match of text.matchAll(/무료\s*배송/gi)) {
-    const index = match.index ?? 0;
-    const context = text.slice(Math.max(0, index - 80), Math.min(text.length, index + match[0].length + 100));
-    if (!disqualifier.test(context)) values.add(0);
-  }
-
   return values.size === 1 ? [...values][0] : undefined;
 }
 
