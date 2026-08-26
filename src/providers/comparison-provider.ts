@@ -5,6 +5,7 @@ import type {
   MarketProvider,
   MarketProviderContext,
   MarketProviderDefinition,
+  SellerCandidate,
   VerificationCandidate,
 } from './market-provider.ts';
 import {
@@ -39,6 +40,65 @@ function identifyCandidate(
   return compareCanonicalIdentity(context.canonicalIdentity, candidateIdentityFromText(text));
 }
 
+function comparisonDomainSuffix(providerId: MarketProviderDefinition['id']): string | null {
+  if (providerId === 'danawa') return 'danawa.com';
+  if (providerId === 'enuri') return 'enuri.com';
+  if (providerId === 'naver-shopping') return 'naver.com';
+  return null;
+}
+
+function isComparisonBridgeUrl(input: string, providerId: MarketProviderDefinition['id']): boolean {
+  const suffix = comparisonDomainSuffix(providerId);
+  if (!suffix) return false;
+  try {
+    const host = new URL(input).hostname.toLowerCase();
+    return host === suffix || host.endsWith(`.${suffix}`);
+  } catch {
+    return false;
+  }
+}
+
+async function resolveComparisonBridgeCandidates(
+  candidates: SellerCandidate[],
+  context: MarketProviderContext,
+  providerId: MarketProviderDefinition['id'],
+): Promise<SellerCandidate[]> {
+  if (!context.resolveSellerRedirect) return candidates;
+  const resolved: SellerCandidate[] = [];
+  for (const candidate of candidates) {
+    if (!isComparisonBridgeUrl(candidate.sellerUrl, providerId)) {
+      resolved.push(candidate);
+      continue;
+    }
+    try {
+      const redirect = await context.resolveSellerRedirect(candidate.sellerUrl);
+      if (redirect.status === 'not_redirect') {
+        resolved.push(candidate);
+        continue;
+      }
+      if (redirect.status !== 'resolved' || !redirect.resolvedUrl) continue;
+      resolved.push({
+        ...candidate,
+        sellerUrl: redirect.resolvedUrl,
+        originalSellerUrl: candidate.sellerUrl,
+        resolutionMethod: 'redirect_resolution',
+        verificationTrace: {
+          ...(candidate.verificationTrace ?? {
+            rejectionReasons: [],
+            retrievedAt: context.now().toISOString(),
+          }),
+          resolutionMethod: 'redirect_resolution',
+          originalSellerUrl: candidate.sellerUrl,
+          resolvedSellerUrl: redirect.resolvedUrl,
+        },
+      });
+    } catch {
+      // Comparison bridge resolution fails closed; an unresolved bridge is not a seller page.
+    }
+  }
+  return resolved;
+}
+
 export function createComparisonMarketProvider(
   definition: Readonly<MarketProviderDefinition>,
 ): MarketProvider {
@@ -62,7 +122,8 @@ export function createComparisonMarketProvider(
       const page = await context.directPage(candidate.url);
       const identity = directPageIdentityMatch(context.canonicalIdentity, page);
       if (identity.verdict !== 'exact') return [];
-      return sellerCandidatesFromComparisonPage(this, candidate, page, context.now().toISOString());
+      const sellers = sellerCandidatesFromComparisonPage(this, candidate, page, context.now().toISOString());
+      return resolveComparisonBridgeCandidates(sellers, context, definition.id);
     },
     async verify(candidate, context) {
       const url = 'sellerUrl' in candidate ? candidate.sellerUrl : candidate.url;
