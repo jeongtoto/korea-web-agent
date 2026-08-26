@@ -308,7 +308,9 @@ function explanation(
 }
 
 export function rankShoppingCandidates(input: RankShoppingInput): CandidateAssessment[] {
-  const candidates = input.candidates.filter((candidate) => candidate.constraintState !== 'EXCLUDED');
+  // Final recommendations require verified hard-constraint eligibility. Preliminary
+  // candidates remain available in diagnostics/enrichment but never enter the Top 5.
+  const candidates = input.candidates.filter((candidate) => candidate.constraintState === 'ELIGIBLE');
   const offers = input.offers ?? [];
   const dedupedReviews = deduplicateReviewEvidence(input.reviews);
   const economics = new Map(candidates.map((candidate) => [candidate.key, economicsFor(candidate, offers)]));
