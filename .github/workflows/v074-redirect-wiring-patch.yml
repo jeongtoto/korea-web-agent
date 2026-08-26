@@ -1,0 +1,55 @@
+name: v074-redirect-wiring-patch
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/v0.7.4-seller-verification-graduation
+    paths:
+      - .github/workflows/v074-redirect-wiring-patch.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v0.7.4-seller-verification-graduation
+      - name: Wire bounded production seller redirect resolver
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/orchestrator/provider-pipeline.ts')
+          text = path.read_text()
+          old = "import { deduplicateSellerOffers } from '../providers/offer-dedupe.ts';\nimport { createVerificationCache } from '../providers/verification-cache.ts';\n"
+          new = "import { deduplicateSellerOffers } from '../providers/offer-dedupe.ts';\nimport { resolveSellerRedirect, type SellerRedirectResult } from '../providers/seller-redirect.ts';\nimport { createVerificationCache } from '../providers/verification-cache.ts';\n"
+          if old not in text:
+              raise SystemExit('import marker missing')
+          text = text.replace(old, new, 1)
+          old = "  deadlineRunner?: DeadlineRunner;\n  legacyFallback?: (provider: MarketProvider) => Promise<ProviderPipelineResult | null>;\n"
+          new = "  deadlineRunner?: DeadlineRunner;\n  sellerRedirectResolver?: (url: string) => Promise<SellerRedirectResult>;\n  legacyFallback?: (provider: MarketProvider) => Promise<ProviderPipelineResult | null>;\n"
+          if old not in text:
+              raise SystemExit('input marker missing')
+          text = text.replace(old, new, 1)
+          old = "  const cachedDirectPage = (url: string): Promise<DirectPageResult> => verificationCache.getOrLoad(\n    url,\n    () => verificationSemaphore.run(\n      () => sameDomainSemaphore.run(hostname(url), () => timed(() => input.directPage(url))),\n    ),\n  );\n\n  const results = await mapWithConcurrency(\n"
+          new = "  const cachedDirectPage = (url: string): Promise<DirectPageResult> => verificationCache.getOrLoad(\n    url,\n    () => verificationSemaphore.run(\n      () => sameDomainSemaphore.run(hostname(url), () => timed(() => input.directPage(url))),\n    ),\n  );\n  const sellerRedirectResolver = input.sellerRedirectResolver ?? ((url: string) => resolveSellerRedirect(url));\n  const boundedSellerRedirect = (url: string): Promise<SellerRedirectResult> => verificationSemaphore.run(\n    () => sameDomainSemaphore.run(hostname(url), () => timed(() => sellerRedirectResolver(url))),\n  );\n\n  const results = await mapWithConcurrency(\n"
+          if old not in text:
+              raise SystemExit('cachedDirectPage marker missing')
+          text = text.replace(old, new, 1)
+          old = "        publicSearch: input.publicSearch,\n        directPage: cachedDirectPage,\n        now: input.now,\n"
+          new = "        publicSearch: input.publicSearch,\n        directPage: cachedDirectPage,\n        resolveSellerRedirect: boundedSellerRedirect,\n        now: input.now,\n"
+          if old not in text:
+              raise SystemExit('context marker missing')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/orchestrator/provider-pipeline.ts
+          git diff --cached --check
+          git commit -m "feat: wire bounded seller redirect resolution in provider coverage"
+          git push origin HEAD:feature/v0.7.4-seller-verification-graduation
