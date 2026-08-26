@@ -1,5 +1,6 @@
 import { parseNaverProductUrl } from '../adapters/naver-product.ts';
 import { compileCanonicalIdentity } from '../core/canonical-identity.ts';
+import { isRelayDomainAllowed } from '../core/policy.ts';
 import { matchEvidenceToProduct } from '../core/product-match.ts';
 import type { NormalizedTarget, ProductCandidate, ProductResolution, ResearchRequest } from '../core/types.ts';
 import type { SearchHit } from '../providers/index.ts';
@@ -171,6 +172,17 @@ function resolvedWithCanonical(
   };
 }
 
+function isStrongExplicitCommerceHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, '');
+  if (isRelayDomainAllowed(host)) return true;
+  return host === 'e-himart.co.kr'
+    || host.endsWith('.e-himart.co.kr')
+    || host === 'store.kakao.com'
+    || host.endsWith('.store.kakao.com')
+    || host === 'toss.im'
+    || host.endsWith('.toss.im');
+}
+
 function resolveStrongExplicitCommerceUrl(request: ResearchRequest): ProductResolution | undefined {
   if (!request.url) return undefined;
   const requestedIdentity = querySeed(request.question);
@@ -182,6 +194,7 @@ function resolveStrongExplicitCommerceUrl(request: ResearchRequest): ProductReso
   } catch {
     return undefined;
   }
+  if (!isStrongExplicitCommerceHost(url.hostname)) return undefined;
 
   const target: NormalizedTarget = {
     ...requestedIdentity,
