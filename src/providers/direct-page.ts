@@ -129,11 +129,13 @@ function deterministicMandatoryFeeFromHtml(html: string): { mandatoryFeeSignal: 
     const localAmounts = [...context.matchAll(/(\d{1,3}(?:,\d{3})+|\d{3,})\s*원/g)]
       .map((item) => numericPrice(item[1]))
       .filter((value): value is number => value !== undefined && value >= 0);
-    if (localAmounts.length === 1) amounts.add(localAmounts[0]);
+    const onlyAmount = localAmounts[0];
+    if (localAmounts.length === 1 && onlyAmount !== undefined) amounts.add(onlyAmount);
   }
   if (!signaled) return { mandatoryFeeSignal: false };
-  return amounts.size === 1
-    ? { mandatoryFeeSignal: true, mandatoryPurchaseFee: [...amounts][0] }
+  const onlyAmount = amounts.size === 1 ? [...amounts][0] : undefined;
+  return onlyAmount !== undefined
+    ? { mandatoryFeeSignal: true, mandatoryPurchaseFee: onlyAmount }
     : { mandatoryFeeSignal: true };
 }
 function metaContent(html: string, attr: 'name' | 'property', key: string): string | undefined {
