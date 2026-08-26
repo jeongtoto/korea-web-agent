@@ -23,21 +23,19 @@ jobs:
           from pathlib import Path
           import re
 
-          # package-lock: modify only the top-level package version and packages[""] version.
           p = Path('package-lock.json')
           s = p.read_text()
-          original_dependency = '"@netlify/blobs": "10.7.13"'
-          if original_dependency not in s:
-              raise SystemExit('expected @netlify/blobs version missing before update')
+          dep = '"@netlify/blobs": "10.7.13"'
+          if dep not in s:
+              raise SystemExit('expected dependency version missing')
           s, n1 = re.subn(r'("name": "korea-web-agent",\n  "version": )"0\.7\.2"', r'\1"0.7.3"', s, count=1)
           s, n2 = re.subn(r'("packages": \{\n    "": \{\n      "name": "korea-web-agent",\n      "version": )"0\.7\.2"', r'\1"0.7.3"', s, count=1)
           if (n1, n2) != (1, 1):
               raise SystemExit(f'package-lock replacement counts: {(n1, n2)}')
-          if original_dependency not in s:
-              raise SystemExit('@netlify/blobs version changed unexpectedly')
+          if dep not in s:
+              raise SystemExit('dependency changed unexpectedly')
           p.write_text(s)
 
-          # OpenAPI: only info.version.
           p = Path('openapi/korea-web-agent-action.yaml')
           s = p.read_text()
           s, n = re.subn(r'(?m)^(info:\n  title: Korea Web Agent\n  version: )0\.7\.2$', r'\g<1>0.7.3', s, count=1)
@@ -45,7 +43,6 @@ jobs:
               raise SystemExit(f'openapi replacement count: {n}')
           p.write_text(s)
 
-          # README: update current header and prepend new release section, preserving history.
           p = Path('README.md')
           s = p.read_text()
           if not s.startswith('# Korea Web Agent v0.7.2\n'):
@@ -53,42 +50,36 @@ jobs:
           s = s.replace('# Korea Web Agent v0.7.2\n', '# Korea Web Agent v0.7.3\n', 1)
           marker = '## v0.7.2 Evidence-Aware Recommendation\n'
           if marker not in s:
-              raise SystemExit('README v0.7.2 history marker missing')
-          section = '''## v0.7.3 Recommendation Output Contract
-
-- Shopping Intelligence returns `BUY` only when at least one finalist is `STRONG_RECOMMENDATION` or `RECOMMENDED`.
-- `PROMISING_NEEDS_VERIFICATION` and `CAUTION` finalists keep the aggregate verdict at `INSUFFICIENT`; they cannot be phrased as confirmed buys.
-- When a higher-scoring provisional finalist outranks a lower-scoring confirmed finalist, result confidence, reasons, strengths, and headline recommendation are anchored to the confirmed finalist.
-- Provisional-only output explicitly identifies a tentative lead that still needs verification; caution-only output explicitly avoids purchase-recommendation language.
-- Ranking, exact-price verification, Provider v2, and Relay behavior are unchanged.
-
-'''
+              raise SystemExit('README history marker missing')
+          section = (
+              '## v0.7.3 Recommendation Output Contract\n\n'
+              '- Shopping Intelligence returns `BUY` only when at least one finalist is `STRONG_RECOMMENDATION` or `RECOMMENDED`.\n'
+              '- `PROMISING_NEEDS_VERIFICATION` and `CAUTION` finalists keep the aggregate verdict at `INSUFFICIENT`; they cannot be phrased as confirmed buys.\n'
+              '- When a higher-scoring provisional finalist outranks a lower-scoring confirmed finalist, result confidence, reasons, strengths, and headline recommendation are anchored to the confirmed finalist.\n'
+              '- Provisional-only output explicitly identifies a tentative lead that still needs verification; caution-only output explicitly avoids purchase-recommendation language.\n'
+              '- Ranking, exact-price verification, Provider v2, and Relay behavior are unchanged.\n\n'
+          )
           s = s.replace(marker, section + marker, 1)
           p.write_text(s)
 
-          # Release note.
           p = Path('docs/releases/v0.7.3.md')
           if p.exists():
               raise SystemExit('v0.7.3 release note already exists')
-          p.write_text('''# v0.7.3 — Recommendation Output Contract
-
-## Fixed
-
-- Aggregate Shopping Intelligence verdict now returns `BUY` only when a finalist is `STRONG_RECOMMENDATION` or `RECOMMENDED`.
-- Provisional-only (`PROMISING_NEEDS_VERIFICATION`) and caution-only results remain `INSUFFICIENT` and cannot use confirmed-buy wording.
-- When the highest-scoring finalist is provisional but a lower-scoring finalist is confirmed, the confirmed finalist becomes the primary candidate for headline recommendation, confidence, reasons, and strengths.
-- Missing-information output now includes both structured evidence gaps and candidate tradeoffs.
-
-## Unchanged boundaries
-
-- Recommendation ranking and tier calculation are unchanged.
-- Exact-price verification, Provider v2, Relay, authentication, and public-price history are unchanged.
-
-## Verification
-
-- TDD reproduced the original mismatch: finalist existed, backend emitted `BUY` despite `PROMISING_NEEDS_VERIFICATION`.
-- Contract tests cover provisional-only, strong recommendation, caution-only, and higher-scoring provisional vs lower-scoring confirmed cases.
-''')
+          release = (
+              '# v0.7.3 — Recommendation Output Contract\n\n'
+              '## Fixed\n\n'
+              '- Aggregate Shopping Intelligence verdict now returns `BUY` only when a finalist is `STRONG_RECOMMENDATION` or `RECOMMENDED`.\n'
+              '- Provisional-only (`PROMISING_NEEDS_VERIFICATION`) and caution-only results remain `INSUFFICIENT` and cannot use confirmed-buy wording.\n'
+              '- When the highest-scoring finalist is provisional but a lower-scoring finalist is confirmed, the confirmed finalist becomes the primary candidate for headline recommendation, confidence, reasons, and strengths.\n'
+              '- Missing-information output now includes both structured evidence gaps and candidate tradeoffs.\n\n'
+              '## Unchanged boundaries\n\n'
+              '- Recommendation ranking and tier calculation are unchanged.\n'
+              '- Exact-price verification, Provider v2, Relay, authentication, and public-price history are unchanged.\n\n'
+              '## Verification\n\n'
+              '- TDD reproduced the original mismatch: finalist existed, backend emitted `BUY` despite `PROMISING_NEEDS_VERIFICATION`.\n'
+              '- Contract tests cover provisional-only, strong recommendation, caution-only, and higher-scoring provisional vs lower-scoring confirmed cases.\n'
+          )
+          p.write_text(release)
           PY
       - name: Verify only intended package-lock lines changed
         run: |
