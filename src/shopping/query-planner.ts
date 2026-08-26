@@ -179,8 +179,11 @@ function discoveryQueries(categoryId: ShoppingCategoryId, mode: ShoppingMode, qu
 
 export function planShoppingResearch(question: string): ShoppingResearchPlan {
   const normalizedQuestion = compact(question);
-  const mode = classifyMode(normalizedQuestion);
+  const classifiedMode = classifyMode(normalizedQuestion);
   const categoryId = inferCategory(normalizedQuestion);
+  const mode: ShoppingMode = categoryId === 'unknown' && classifiedMode === 'RECOMMENDATION'
+    ? 'EXACT_PRODUCT'
+    : classifiedMode;
   const budget = parseBudget(normalizedQuestion);
   const hardConstraints = categoryId === 'portable_display'
     ? portableDisplayConstraints(normalizedQuestion)
