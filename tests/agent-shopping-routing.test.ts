@@ -159,6 +159,42 @@ test('shopping output stays insufficient when every finalist still needs verific
   assert.equal(result.decision, 'INSUFFICIENT');
 });
 
+test('BUY output selects the best confirmed finalist instead of a higher-scoring provisional finalist', async () => {
+  const shopping = shoppingResultWithTier('PROMISING_NEEDS_VERIFICATION');
+  const provisional = shopping.assessments[0]!;
+  provisional.recommendationScore = 0.91;
+  provisional.strengths = ['provisional-top'];
+
+  shopping.assessments.push({
+    ...provisional,
+    candidate: {
+      ...provisional.candidate,
+      key: 'candidate-2',
+      model: 'MODEL-2',
+      title: '테스트브랜드 MODEL-2 이동식 TV',
+      sourceUrls: ['https://example.com/model-2'],
+    },
+    recommendationScore: 0.79,
+    evidenceConfidence: 0.8,
+    recommendationTier: 'RECOMMENDED',
+    strengths: ['confirmed-second'],
+    tradeoffs: [],
+    evidenceUrls: ['https://example.com/model-2'],
+  });
+
+  const result = await runAgentResearch({ query: '50만원 이하 43인치 4K 이동식 TV 가성비 추천해줘' }, {
+    publicSearch: async () => { throw new Error('legacy resolver must not run'); },
+    cloudResearch: async () => { throw new Error('legacy exact research must not run'); },
+    shoppingResearch: async () => shopping,
+  });
+
+  assert.equal(result.decision, 'BUY');
+  assert.deepEqual(result.reasons, ['confirmed-second']);
+  assert.equal(result.confidence, 0.8);
+  assert.match(result.summary, /현재 기준 1순위 추천/);
+  assert.match(result.summary, /MODEL-2/);
+});
+
 test('unsupported recommendation category preserves the legacy resolver path', async () => {
   let shoppingCalls = 0;
   let publicSearchCalls = 0;
