@@ -1,0 +1,61 @@
+name: Release metadata bump
+
+on:
+  push:
+    branches: [feature/v0.7.2-evidence-aware-recommendation]
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v0.7.2-evidence-aware-recommendation
+          fetch-depth: 0
+      - name: Align v0.7.2 metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          files = [
+              Path('package.json'),
+              Path('package-lock.json'),
+              Path('openapi/korea-web-agent-action.yaml'),
+              Path('netlify/functions/health.mjs'),
+              Path('.github/workflows/production-smoke.yml'),
+              Path('tests/version-metadata.test.ts'),
+              Path('README.md'),
+          ]
+          for path in files:
+              text = path.read_text(encoding='utf-8')
+              text = text.replace('0.7.1', '0.7.2').replace(r'0\.7\.1', r'0\.7\.2')
+              path.write_text(text, encoding='utf-8')
+
+          readme = Path('README.md')
+          text = readme.read_text(encoding='utf-8')
+          marker = '## v0.7.2 Evidence-Aware Recommendation\n'
+          if marker not in text:
+              insert = '''## v0.7.2 Evidence-Aware Recommendation\n\n- Preliminary finalist selection prioritizes verified facts and evidence coverage over search prominence.\n- Review trust discounts sponsored material, stale reports, duplicated/reposted claims, and identity-mismatched evidence; search snippets never become verified-purchase evidence.\n- Value ranking separates product merit from price verification so a modestly more expensive but materially better product can outrank a weak cheapest option.\n- Unknown or indicative prices may inform research but cannot claim best-value eligibility; unresolved shipping lowers price confidence without lowering product-quality merit.\n- Recommendations expose deterministic tiers (`STRONG_RECOMMENDATION`, `RECOMMENDED`, `PROMISING_NEEDS_VERIFICATION`, `CAUTION`) and structured rationale.\n- Relay availability remains diagnostic/personalization-only and cannot change the public recommendation score, tier, order, or value eligibility.\n- Golden quality cases cover sponsored-volume bias, recent repeated defects, bedding quality trade-offs, unknown-price handling, and commerce-snippet misclassification.\n\n'''
+              anchor = '## v0.7.2 Live Verification Hardening\n'
+              text = text.replace(anchor, insert + anchor, 1)
+              readme.write_text(text, encoding='utf-8')
+          PY
+          git diff --check
+          git diff -- package.json package-lock.json openapi/korea-web-agent-action.yaml netlify/functions/health.mjs .github/workflows/production-smoke.yml tests/version-metadata.test.ts README.md
+      - name: Commit aligned metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json package-lock.json openapi/korea-web-agent-action.yaml netlify/functions/health.mjs .github/workflows/production-smoke.yml tests/version-metadata.test.ts README.md
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore: align v0.7.2 release metadata'
+          git push origin HEAD:feature/v0.7.2-evidence-aware-recommendation
