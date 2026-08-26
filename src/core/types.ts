@@ -217,6 +217,37 @@ export type OfferPriceBasis = 'cash' | 'owned_card' | 'conditional_payment' | 'p
 
 export type ShippingStatus = 'free' | 'paid' | 'conditional_free' | 'unknown';
 
+export const SELLER_RESOLUTION_METHODS = [
+  'static_link',
+  'embedded_metadata',
+  'redirect_resolution',
+  'fallback_search',
+] as const;
+export type SellerResolutionMethod = (typeof SELLER_RESOLUTION_METHODS)[number];
+
+export const MANDATORY_FEE_STATUSES = ['required', 'not_applicable', 'unknown'] as const;
+export type MandatoryFeeStatus = (typeof MANDATORY_FEE_STATUSES)[number];
+
+export interface SellerVerificationTrace {
+  comparisonSource?: string;
+  comparisonUrl?: string;
+  resolutionMethod?: SellerResolutionMethod;
+  originalSellerUrl?: string;
+  resolvedSellerUrl?: string;
+  identityVerdict?: IdentityVerdict;
+  bundleVerdict?: 'complete' | 'incomplete' | 'unknown';
+  priceStatus?: OfferVerification | 'missing';
+  shippingStatus?: ShippingStatus;
+  availabilityStatus?: 'available' | 'unavailable' | 'unknown';
+  mandatoryFeeStatus?: MandatoryFeeStatus;
+  comparisonAdvertisedPrice?: number;
+  sellerVerifiedPrice?: number;
+  mandatoryPurchaseFee?: number;
+  totalCashPrice?: number;
+  rejectionReasons: string[];
+  retrievedAt: string;
+}
+
 export interface ShippingQuote {
   status: ShippingStatus;
   baseFee?: number;
@@ -285,6 +316,9 @@ export interface MarketOffer {
   shipping?: ShippingQuote;
   installationFee?: number;
   mandatoryFees?: number[];
+  mandatoryPurchaseFee?: number;
+  mandatoryFeeStatus?: MandatoryFeeStatus;
+  verificationTrace?: SellerVerificationTrace;
   promotion?: PromotionState;
   provenance?: {
     identity?: FieldProvenance;

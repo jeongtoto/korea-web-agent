@@ -4,6 +4,8 @@ import type {
   MarketOffer,
   NormalizedTarget,
   ProductConstraint,
+  SellerResolutionMethod,
+  SellerVerificationTrace,
 } from '../core/types.ts';
 import type { DirectPageResult } from './direct-page.ts';
 import type { SearchHit } from './index.ts';
@@ -55,6 +57,9 @@ export interface SellerCandidate {
   sellerProductId?: string;
   advertisedPrice?: number;
   advertisedShipping?: number;
+  resolutionMethod?: SellerResolutionMethod;
+  originalSellerUrl?: string;
+  verificationTrace?: SellerVerificationTrace;
 }
 
 export type VerificationCandidate = DiscoveryCandidate | SellerCandidate;
