@@ -5,6 +5,7 @@ import { normalizeShoppingCandidates } from './candidate-normalizer.ts';
 import { deepResearchCandidates } from './deep-research.ts';
 import { discoverShoppingCandidates } from './discovery.ts';
 import { lightEnrichCandidates } from './light-enrichment.ts';
+import { rankPreliminaryCandidates } from './preliminary-ranking.ts';
 import {
   verifyFinalistPrices,
   type ShoppingPriceVerifier,
@@ -70,16 +71,6 @@ function emptyProgress(): ShoppingResearchProgress {
   };
 }
 
-function preliminaryOrder(candidates: ShoppingCandidate[], limit: number): ShoppingCandidate[] {
-  return candidates
-    .filter((candidate) => candidate.constraintState !== 'EXCLUDED')
-    .sort((a, b) => {
-      if (a.constraintState !== b.constraintState) return a.constraintState === 'ELIGIBLE' ? -1 : 1;
-      return b.discoveryScore - a.discoveryScore || a.key.localeCompare(b.key);
-    })
-    .slice(0, limit);
-}
-
 function applyPurchaseContext(plan: ShoppingResearchPlan, context: PurchaseContext | undefined): ShoppingResearchPlan {
   if (!context?.budget || plan.budget) return plan;
   return {
@@ -126,7 +117,8 @@ export async function runShoppingResearch(
   });
   progress.eligibleCandidates = enriched.filter((candidate) => candidate.constraintState === 'ELIGIBLE').length;
 
-  const shortlist = preliminaryOrder(enriched, plan.limits.shortlist);
+  const shortlist = rankPreliminaryCandidates(plan, enriched, plan.limits.shortlist)
+    .map((item) => item.candidate);
   const finalists = shortlist.slice(0, plan.limits.deepResearch);
 
   stage(stageHistory, 'DEEP_RESEARCH');
