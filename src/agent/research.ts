@@ -258,23 +258,23 @@ function shapeAgentShoppingResult(
   intent: ResearchIntent,
   shopping: ShoppingResearchResult,
 ): AgentResearchResult {
-  const top = shopping.assessments[0];
-  const evidenceUrls = [...new Set(shopping.assessments.flatMap((item) => item.evidenceUrls))];
-  const hasRecommendations = shopping.assessments.length > 0;
-  const hasConfirmedRecommendation = shopping.assessments.some((item) =>
+  const confirmed = shopping.assessments.find((item) =>
     item.recommendationTier === 'STRONG_RECOMMENDATION' || item.recommendationTier === 'RECOMMENDED');
+  const promising = shopping.assessments.find((item) => item.recommendationTier === 'PROMISING_NEEDS_VERIFICATION');
+  const primary = confirmed ?? promising ?? shopping.assessments[0];
+  const evidenceUrls = [...new Set(shopping.assessments.flatMap((item) => item.evidenceUrls))];
   const result: AgentResearchResult = {
     status: shopping.partial ? 'partial' : 'completed',
     query: input.query,
     intent,
     product: {
       kind: 'product',
-      identityConfidence: top?.confidenceDimensions.identity ?? 0,
+      identityConfidence: primary?.confidenceDimensions.identity ?? 0,
       ambiguous: false,
       candidates: [],
     },
-    decision: hasConfirmedRecommendation ? 'BUY' : 'INSUFFICIENT',
-    confidence: top?.evidenceConfidence ?? 0,
+    decision: confirmed ? 'BUY' : 'INSUFFICIENT',
+    confidence: primary?.evidenceConfidence ?? 0,
     shopping,
     relay: {
       requested: false,
@@ -283,18 +283,24 @@ function shapeAgentShoppingResult(
       mode: 'public_only',
       message: 'Public Shopping Intelligence completed without authenticated personalization.',
     },
-    summary: hasRecommendations
-      ? `시장 후보 ${shopping.progress.normalizedCandidates}개를 정규화하고 상위 ${shopping.assessments.length}개를 비교했습니다.`
-      : '정밀 쇼핑 조사를 완료했지만 최종 추천 근거가 충분하지 않습니다.',
-    reasons: top?.strengths ?? [],
-    strengths: top?.strengths ?? [],
-    weaknesses: top?.negativeSignals ?? [],
-    missingInformation: top?.tradeoffs ?? ['조건을 만족하는 검증된 추천 후보가 부족합니다.'],
+    summary: confirmed
+      ? `현재 기준 1순위 추천은 ${confirmed.candidate.title}입니다. 시장 후보 ${shopping.progress.normalizedCandidates}개를 정규화하고 상위 ${shopping.assessments.length}개를 비교했습니다.`
+      : promising
+        ? `확정 추천 기준을 통과한 후보는 없습니다. 현재 가장 유망한 잠정 후보는 ${promising.candidate.title}이며 추가 검증이 필요합니다.`
+        : primary
+          ? '확정 추천 기준을 통과한 후보는 없습니다. 현재 후보에는 주의 신호가 있어 구매 추천하지 않습니다.'
+          : '정밀 쇼핑 조사를 완료했지만 최종 추천 근거가 충분하지 않습니다.',
+    reasons: primary?.strengths ?? [],
+    strengths: primary?.strengths ?? [],
+    weaknesses: primary?.negativeSignals ?? [],
+    missingInformation: primary
+      ? [...new Set([...primary.rationale.evidenceGaps, ...primary.tradeoffs])]
+      : ['조건을 만족하는 검증된 추천 후보가 부족합니다.'],
     evidence: evidenceUrls.slice(0, 20).map((sourceUrl) => ({
       claim: 'Shopping Intelligence recommendation evidence',
       sourceUrl,
       evidenceClass: 'inferred_analysis',
-      confidence: top?.evidenceConfidence ?? 0,
+      confidence: primary?.evidenceConfidence ?? 0,
       specificity: 'exact_product',
     })),
     sourceCoverage: {
