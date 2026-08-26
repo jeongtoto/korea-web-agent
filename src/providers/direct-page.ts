@@ -37,6 +37,8 @@ export interface DirectProductFacts {
   price?: number;
   availability?: string;
   shippingFee?: number;
+  mandatoryPurchaseFee?: number;
+  mandatoryFeeSignal?: boolean;
   attributes?: Record<string, string | number | boolean>;
 }
 
@@ -113,6 +115,27 @@ function deterministicShippingFeeFromHtml(html: string): number | undefined {
   return values.size === 1 ? [...values][0] : undefined;
 }
 
+function deterministicMandatoryFeeFromHtml(html: string): { mandatoryFeeSignal: boolean; mandatoryPurchaseFee?: number } {
+  const text = visiblePageText(html);
+  const feeAnchor = /(?:설치비|설치\s*비용|조립비|배송\s*설치비|의무\s*비용|필수\s*비용|mandatory\s*fee|required\s*fee)/gi;
+  const mandatory = /(?:필수|의무|반드시|구매\s*시\s*부과|required|mandatory)/i;
+  const amounts = new Set<number>();
+  let signaled = false;
+  for (const match of text.matchAll(feeAnchor)) {
+    const index = match.index ?? 0;
+    const context = text.slice(Math.max(0, index - 70), Math.min(text.length, index + match[0].length + 70));
+    if (!mandatory.test(context)) continue;
+    signaled = true;
+    const localAmounts = [...context.matchAll(/(\d{1,3}(?:,\d{3})+|\d{3,})\s*원/g)]
+      .map((item) => numericPrice(item[1]))
+      .filter((value): value is number => value !== undefined && value >= 0);
+    if (localAmounts.length === 1) amounts.add(localAmounts[0]);
+  }
+  if (!signaled) return { mandatoryFeeSignal: false };
+  return amounts.size === 1
+    ? { mandatoryFeeSignal: true, mandatoryPurchaseFee: [...amounts][0] }
+    : { mandatoryFeeSignal: true };
+}
 function metaContent(html: string, attr: 'name' | 'property', key: string): string | undefined {
   const patterns = [
     new RegExp(`<meta\\s+[^>]*${attr}=["']${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*content=["']([^"']*)["'][^>]*>`, 'i'),
@@ -348,8 +371,14 @@ export async function fetchDirectPage(
   const genericProduct = parseProduct(html);
   const product = mergeProduct(genericProduct, extraction?.product);
   const staticShippingFee = product?.offers?.shippingFee === undefined ? deterministicShippingFeeFromHtml(html) : undefined;
-  const staticFacts: DirectProductFacts | undefined = staticShippingFee !== undefined ? { shippingFee: staticShippingFee } : undefined;
-  const facts = mergeFacts(mergeFacts(productFacts(product), staticFacts), extraction?.facts);
+  const mandatoryFee = deterministicMandatoryFeeFromHtml(html);
+  const staticFacts: DirectProductFacts = {};
+  if (staticShippingFee !== undefined) staticFacts.shippingFee = staticShippingFee;
+  if (mandatoryFee.mandatoryFeeSignal) {
+    staticFacts.mandatoryFeeSignal = true;
+    if (mandatoryFee.mandatoryPurchaseFee !== undefined) staticFacts.mandatoryPurchaseFee = mandatoryFee.mandatoryPurchaseFee;
+  }
+  const facts = mergeFacts(mergeFacts(productFacts(product), Object.keys(staticFacts).length ? staticFacts : undefined), extraction?.facts);
   const fallbackSellerLinks = isComparisonPortalHost(url) ? extractComparisonSellerLinks(html, url) : [];
   const sellerLinks = extraction?.sellerLinks?.length ? extraction.sellerLinks : fallbackSellerLinks;
   const embeddedSellerRecords = isComparisonPortalHost(url) ? extractEmbeddedSellerRecords(html, url) : [];
