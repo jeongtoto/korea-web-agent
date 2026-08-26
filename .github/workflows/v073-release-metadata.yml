@@ -1,0 +1,104 @@
+name: v0.7.3 release metadata
+
+on:
+  push:
+    branches:
+      - feature/v0.7.3-recommendation-output-contract
+    paths:
+      - .github/workflows/v073-release-metadata.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v0.7.3-recommendation-output-contract
+      - name: Align non-workflow release metadata
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          # package-lock: modify only the top-level package version and packages[""] version.
+          p = Path('package-lock.json')
+          s = p.read_text()
+          original_dependency = '"@netlify/blobs": "10.7.13"'
+          if original_dependency not in s:
+              raise SystemExit('expected @netlify/blobs version missing before update')
+          s, n1 = re.subn(r'("name": "korea-web-agent",\n  "version": )"0\.7\.2"', r'\1"0.7.3"', s, count=1)
+          s, n2 = re.subn(r'("packages": \{\n    "": \{\n      "name": "korea-web-agent",\n      "version": )"0\.7\.2"', r'\1"0.7.3"', s, count=1)
+          if (n1, n2) != (1, 1):
+              raise SystemExit(f'package-lock replacement counts: {(n1, n2)}')
+          if original_dependency not in s:
+              raise SystemExit('@netlify/blobs version changed unexpectedly')
+          p.write_text(s)
+
+          # OpenAPI: only info.version.
+          p = Path('openapi/korea-web-agent-action.yaml')
+          s = p.read_text()
+          s, n = re.subn(r'(?m)^(info:\n  title: Korea Web Agent\n  version: )0\.7\.2$', r'\g<1>0.7.3', s, count=1)
+          if n != 1:
+              raise SystemExit(f'openapi replacement count: {n}')
+          p.write_text(s)
+
+          # README: update current header and prepend new release section, preserving history.
+          p = Path('README.md')
+          s = p.read_text()
+          if not s.startswith('# Korea Web Agent v0.7.2\n'):
+              raise SystemExit('README current-version header not found')
+          s = s.replace('# Korea Web Agent v0.7.2\n', '# Korea Web Agent v0.7.3\n', 1)
+          marker = '## v0.7.2 Evidence-Aware Recommendation\n'
+          if marker not in s:
+              raise SystemExit('README v0.7.2 history marker missing')
+          section = '''## v0.7.3 Recommendation Output Contract
+
+- Shopping Intelligence returns `BUY` only when at least one finalist is `STRONG_RECOMMENDATION` or `RECOMMENDED`.
+- `PROMISING_NEEDS_VERIFICATION` and `CAUTION` finalists keep the aggregate verdict at `INSUFFICIENT`; they cannot be phrased as confirmed buys.
+- When a higher-scoring provisional finalist outranks a lower-scoring confirmed finalist, result confidence, reasons, strengths, and headline recommendation are anchored to the confirmed finalist.
+- Provisional-only output explicitly identifies a tentative lead that still needs verification; caution-only output explicitly avoids purchase-recommendation language.
+- Ranking, exact-price verification, Provider v2, and Relay behavior are unchanged.
+
+'''
+          s = s.replace(marker, section + marker, 1)
+          p.write_text(s)
+
+          # Release note.
+          p = Path('docs/releases/v0.7.3.md')
+          if p.exists():
+              raise SystemExit('v0.7.3 release note already exists')
+          p.write_text('''# v0.7.3 — Recommendation Output Contract
+
+## Fixed
+
+- Aggregate Shopping Intelligence verdict now returns `BUY` only when a finalist is `STRONG_RECOMMENDATION` or `RECOMMENDED`.
+- Provisional-only (`PROMISING_NEEDS_VERIFICATION`) and caution-only results remain `INSUFFICIENT` and cannot use confirmed-buy wording.
+- When the highest-scoring finalist is provisional but a lower-scoring finalist is confirmed, the confirmed finalist becomes the primary candidate for headline recommendation, confidence, reasons, and strengths.
+- Missing-information output now includes both structured evidence gaps and candidate tradeoffs.
+
+## Unchanged boundaries
+
+- Recommendation ranking and tier calculation are unchanged.
+- Exact-price verification, Provider v2, Relay, authentication, and public-price history are unchanged.
+
+## Verification
+
+- TDD reproduced the original mismatch: finalist existed, backend emitted `BUY` despite `PROMISING_NEEDS_VERIFICATION`.
+- Contract tests cover provisional-only, strong recommendation, caution-only, and higher-scoring provisional vs lower-scoring confirmed cases.
+''')
+          PY
+      - name: Verify only intended package-lock lines changed
+        run: |
+          git diff -- package-lock.json
+          test "$(git diff --numstat -- package-lock.json | awk '{print $1+$2}')" = "4"
+          grep -F '"@netlify/blobs": "10.7.13"' package-lock.json
+      - name: Commit metadata
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json openapi/korea-web-agent-action.yaml README.md docs/releases/v0.7.3.md
+          git commit -m "docs: align v0.7.3 release metadata"
+          git push origin HEAD:feature/v0.7.3-recommendation-output-contract
