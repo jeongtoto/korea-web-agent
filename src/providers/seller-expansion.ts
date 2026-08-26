@@ -15,6 +15,7 @@ import type {
   MarketProviderContext,
   SellerCandidate,
 } from './market-provider.ts';
+import { resolveSellerCandidatesFromPage } from './seller-resolution.ts';
 import type { VerificationCache } from './verification-cache.ts';
 
 export function directPageIdentityText(page: DirectPageResult): string {
@@ -70,6 +71,7 @@ export interface VerifiedSellerOfferInput {
   discoveredBy: string[];
   sellerName?: string;
   sellerProductId?: string;
+  verificationTrace?: SellerCandidate['verificationTrace'];
 }
 
 export function verifiedSellerOfferFromPage(input: VerifiedSellerOfferInput): MarketOffer | null {
@@ -138,6 +140,21 @@ export function verifiedSellerOfferFromPage(input: VerifiedSellerOfferInput): Ma
       shipping: { sourceUrl: sellerCanonicalUrl, method: shippingFee !== undefined ? 'page_verified' : 'unverified', verifiedAt: input.retrievedAt },
       availability: { sourceUrl: sellerCanonicalUrl, method: 'page_verified', verifiedAt: input.retrievedAt },
     },
+    ...(input.verificationTrace ? {
+      verificationTrace: {
+        ...input.verificationTrace,
+        resolvedSellerUrl: sellerCanonicalUrl,
+        identityVerdict: identity.verdict,
+        bundleVerdict: identity.verdict === 'exact' ? 'complete' : 'unknown',
+        priceStatus: 'page_verified',
+        shippingStatus: shippingFee === undefined ? 'unknown' : shippingFee === 0 ? 'free' : 'paid',
+        availabilityStatus: unavailable(availability) ? 'unavailable' : availability ? 'available' : 'unknown',
+        sellerVerifiedPrice: price,
+        ...(shippingFee !== undefined ? { totalCashPrice: Math.round(price + shippingFee) } : {}),
+        rejectionReasons: [...exclusionReasons],
+        retrievedAt: input.retrievedAt,
+      },
+    } : {}),
     conditions: [],
     riskFlags: shippingFee === undefined ? ['배송비가 확인되지 않았습니다.'] : [],
     exclusionReasons,
@@ -148,23 +165,15 @@ export function sellerCandidatesFromComparisonPage(
   provider: MarketProvider,
   comparison: DiscoveryCandidate,
   page: DirectPageResult,
+  retrievedAt: string,
 ): SellerCandidate[] {
-  return (page.sellerLinks ?? []).slice(0, provider.budget.sellerExpansion).flatMap((link) => {
-    try {
-      const sellerUrl = assertPublicUrl(link.url).toString();
-      return [{
-        providerId: provider.id,
-        discoveredFrom: [provider.id],
-        comparisonUrl: comparison.url,
-        ...(link.sellerName ? { sellerName: link.sellerName } : {}),
-        sellerUrl,
-        ...(link.productId ? { sellerProductId: link.productId } : {}),
-        ...(link.advertisedPrice !== undefined ? { advertisedPrice: link.advertisedPrice } : {}),
-        ...(link.advertisedShipping !== undefined ? { advertisedShipping: link.advertisedShipping } : {}),
-      } satisfies SellerCandidate];
-    } catch {
-      return [];
-    }
+  return resolveSellerCandidatesFromPage({
+    providerId: provider.id,
+    comparisonUrl: comparison.url,
+    staticLinks: page.sellerLinks ?? [],
+    embeddedRecords: page.embeddedSellerRecords ?? [],
+    limit: provider.budget.sellerExpansion,
+    retrievedAt,
   });
 }
 
