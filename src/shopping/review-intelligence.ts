@@ -175,8 +175,10 @@ export function deduplicateReviewEvidence(items: ReviewEvidence[]): ReviewEviden
   for (const item of collapseReviewIndependence(items)) {
     const key = `${item.candidateKey}|${item.topic}|${item.independenceKey}`;
     const existing = byKey.get(key);
-    const itemWeight = item.effectiveWeight ?? item.confidence;
-    const existingWeight = existing ? (existing.effectiveWeight ?? existing.confidence) : -1;
+    const itemWeight = (item.effectiveWeight ?? item.confidence) * (item.independenceConfidence ?? 1);
+    const existingWeight = existing
+      ? (existing.effectiveWeight ?? existing.confidence) * (existing.independenceConfidence ?? 1)
+      : -1;
     if (!existing || itemWeight > existingWeight) byKey.set(key, item);
   }
   return [...byKey.values()];
@@ -199,9 +201,10 @@ export function aggregateReviewConsensus(items: ReviewEvidence[]): ReviewConsens
     let sponsoredOnly = true;
 
     for (const item of evidence) {
-      const effective = item.effectiveWeight !== undefined
+      const baseEffective = item.effectiveWeight !== undefined
         ? clamp(item.effectiveWeight)
         : clamp(item.confidence * sourceMultiplier(item));
+      const effective = clamp(baseEffective * (item.independenceConfidence ?? 1));
       if (item.polarity === 'positive') positiveWeight += effective;
       if (item.polarity === 'negative') negativeWeight += effective;
       if (item.polarity === 'neutral') {
@@ -213,7 +216,7 @@ export function aggregateReviewConsensus(items: ReviewEvidence[]): ReviewConsens
       if (!item.sponsored && item.sourceClass !== 'sponsored_content') sponsoredOnly = false;
     }
 
-    const independentSources = evidence.filter((item) => (item.independenceConfidence ?? 1) >= 0.5).length;
+    const independentSources = new Set(evidence.map((item) => item.independenceKey)).size;
     const average = confidenceWeight ? confidenceTotal / confidenceWeight : 0;
     const coverageMultiplier = independentSources >= 3 ? 1 : independentSources === 2 ? 0.8 : independentSources === 1 ? 0.55 : 0.35;
     let confidence = clamp(average * coverageMultiplier);
