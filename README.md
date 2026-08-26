@@ -1,4 +1,4 @@
-# Korea Web Agent v0.6.2
+# Korea Web Agent v0.7.1
 
 Korea Web Agent is a read-only Korean product-research backend designed to be called from a dedicated Custom GPT. The primary experience is now natural-language product research inside ChatGPT; the existing PWA remains available as a diagnostic/manual testing surface.
 
@@ -10,14 +10,25 @@ Example:
 
 The agent resolves an exact product or a recommendation category, gathers attributable public evidence, normalizes multi-market offers, and conditionally asks a locally authenticated PC browser to verify up to eight difficult commerce pages. It separates cash, owned-card, public conditional, account-personalized, points-adjusted, refurb/open-box, and used prices and returns a conservative `BUY / WAIT / SKIP / INSUFFICIENT` result plus Best 3 recommendations when appropriate.
 
-## v0.6.2 Provider v2 coverage
+## v0.7.1 Live Verification Hardening
+
+- Explicit non-Naver commerce URLs preserve the requested canonical model, size, variant, and required bundle identity instead of regressing to ambiguous search-only resolution.
+- Strong explicit-URL identity seeding is limited to supported commerce hosts; an arbitrary editorial URL cannot become an exact product target from query text alone.
+- Static seller pages promote shipping only when free or a fixed mandatory fee is deterministically tied to a shipping label. Conditional, regional, collect-on-delivery, installation-dependent, and extra-fee cases remain unresolved.
+- Danawa, Enuri, and Naver Shopping comparison portals expose attributable downstream seller links to the default production verification path. Unrelated external advertising links are not allowed to consume seller-verification budget.
+- Search/comparison prices remain discovery-only until a downstream seller page verifies identity, price, shipping, and availability.
+- Relay diagnostics distinguish `never_seen`, `online`, and `stale` heartbeat states without exposing secrets, signatures, nonces, or queued payloads.
+- The WideView `QWGE43UT1 + EKWBYME78W(V3)` benchmark rejects V2, body-only, metadata-only, and unknown-shipping decoys before decisive ranking.
+- Feature-branch pushes run the locked-dependency, production-audit, test, typecheck, and build CI gate before merge.
+
+## v0.7.1 Provider v2 coverage
 
 - Provider v2 executes 13 required domestic commerce channels in a deterministic registry: Naver Shopping, Coupang, Danawa, Enuri, 11st, Gmarket, Auction, SSG, Lotte ON, Lotte Hi-Mart, official stores, Kakao TalkDeal, and Toss Shopping.
 - Danawa and Enuri comparison-page prices are discovery signals only. Seller expansion follows the downstream seller and verifies exact identity, price, and shipping before an offer can become decisive.
 - Exact SKU, variant, bundle, condition, availability, shipping, and verification tier are part of offer eligibility. Unknown or non-deterministic mandatory shipping/fees cannot win the cash ranking.
 - `totalCashPrice`, owned-card `cardPrice`, public `publicConditional`, account/personalized values, and points-adjusted `effectivePrice` are ranked separately. A public coupon/payment condition does not masquerade as unconditional cash.
 - Active unconditional public deals such as an eligible TalkDeal may qualify as cash; public conditional deals require their current promotion condition to be verified; account-only prices remain personalization.
-- AliExpress and Temu are outside the 13 required Provider v2 execution set in v0.6.2. They may still appear through legacy/general discovery, but they do not satisfy required domestic provider coverage.
+- AliExpress and Temu are outside the 13 required Provider v2 execution set in v0.7.1. They may still appear through legacy/general discovery, but they do not satisfy required domestic provider coverage.
 - Login-only/account-personalized values are optional Relay enrichment. They never replace public cash history or override a verified public cash winner.
 - Request-scoped `paymentMethods` supports public conditions such as Toss Pay, Kakao Pay, Naver Pay, and PAYCO without requiring a persistent user profile.
 - Exact normalized SKU public-cash observations are retained for 183 days to report previous-price movement and six-month position; deduped comparison/search evidence and personalized Relay values are excluded from that history.
@@ -144,7 +155,7 @@ Relay status:
 GET /api/relay/status
 ```
 
-`online:true` means the cloud has seen the connector recently.
+`online:true` means the cloud has seen the connector recently. `state` distinguishes `not_configured`, `never_seen`, `online`, and `stale`; `heartbeatAgeMs` and `onlineTtlMs` explain an offline result without exposing any Relay secret or job payload.
 
 ## ChatGPT Action API
 
@@ -321,4 +332,4 @@ npm run build
 npm audit --omit=dev --audit-level=high
 ```
 
-Tests cover URL safety, Shopping Live parsing, intent classification, query-only product resolution, ambiguity, exact-product matching, generic-evidence rejection, source planning, conservative search signals, provider-registry coverage, downstream seller expansion, shipping and promotion gates, economic dedupe/cache behavior, public-history isolation, price-gated decisions, confidence anti-inflation, relay signatures/sanitization, site-aware authenticated extraction, async relay merge, Action API contract/authentication, and deterministic WideView v0.6.2 end-to-end acceptance.
+Tests cover URL safety, Shopping Live parsing, intent classification, query-only product resolution, ambiguity, exact-product matching, generic-evidence rejection, source planning, conservative search signals, provider-registry coverage, downstream seller expansion, deterministic shipping and promotion gates, economic dedupe/cache behavior, public-history isolation, price-gated decisions, confidence anti-inflation, relay signatures/sanitization, site-aware authenticated extraction, async relay merge, Action API contract/authentication, exact-URL regression, Relay heartbeat diagnostics, and deterministic WideView v0.7.1 end-to-end acceptance.
