@@ -1,3 +1,5 @@
+import type { OfferCondition } from '../core/types.ts';
+
 export type ShoppingMode = 'EXACT_PRODUCT' | 'COMPARISON' | 'RECOMMENDATION';
 
 export type ShoppingCategoryId = 'portable_display' | 'bedding' | 'unknown';
@@ -48,4 +50,33 @@ export interface ShoppingResearchPlan {
   dimensionWeights: Record<string, number>;
   discoveryQueries: DiscoveryQuery[];
   limits: ShoppingStageLimits;
+}
+
+export interface ShoppingRawHit {
+  queryId: string;
+  title: string;
+  url: string;
+  snippet: string;
+  sourceGroup: DiscoveryQuery['sourceGroup'];
+}
+
+export interface FactValue {
+  value: string | number | boolean | string[];
+  verification: 'search_metadata' | 'page_verified' | 'official';
+  sourceUrl: string;
+}
+
+export interface ShoppingCandidate {
+  key: string;
+  family?: string;
+  brand?: string;
+  model?: string;
+  variant: Record<string, string | number | boolean>;
+  bundle: string[];
+  condition: OfferCondition;
+  title: string;
+  sourceUrls: string[];
+  discoveryScore: number;
+  facts: Record<string, FactValue>;
+  constraintState: ShoppingConstraintState;
 }
