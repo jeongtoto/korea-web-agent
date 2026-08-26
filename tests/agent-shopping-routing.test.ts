@@ -41,6 +41,56 @@ function shoppingResult(): ShoppingResearchResult {
   };
 }
 
+function shoppingResultWithTier(
+  recommendationTier: ShoppingResearchResult['assessments'][number]['recommendationTier'],
+): ShoppingResearchResult {
+  const result = shoppingResult();
+  result.assessments = [{
+    candidate: {
+      key: 'candidate-1',
+      brand: '테스트브랜드',
+      model: 'MODEL-1',
+      variant: {},
+      bundle: ['TV', '이동식 스탠드'],
+      condition: 'new',
+      title: '테스트브랜드 MODEL-1 이동식 TV',
+      sourceUrls: ['https://example.com/model-1'],
+      discoveryScore: 0.8,
+      facts: {},
+      constraintState: 'ELIGIBLE',
+    },
+    dimensionScores: { fit: 0.8 },
+    recommendationScore: 0.76,
+    evidenceConfidence: 0.7,
+    confidenceDimensions: {
+      identity: 0.9,
+      hardConstraints: 1,
+      officialSpecs: 0.7,
+      reviewConsensus: 0.65,
+      negativeCoverage: 0.6,
+      priceVerification: 0.45,
+      durability: 0.5,
+      serviceWarranty: 0.6,
+      personalization: 0,
+    },
+    recommendationTier,
+    rationale: {
+      whyItRanks: ['fit'],
+      bestFor: ['value'],
+      tradeoffs: ['verified_cash_price_unavailable'],
+      evidenceGaps: ['verified_cash_price_unavailable'],
+      repeatedNegativeTopics: [],
+      priceStatus: 'indicative',
+      bestValueEligible: false,
+    },
+    strengths: ['fit'],
+    tradeoffs: ['verified_cash_price_unavailable'],
+    negativeSignals: [],
+    evidenceUrls: ['https://example.com/model-1'],
+  }];
+  return result;
+}
+
 function exactJob(question: string): ResearchJob {
   return {
     id: 'exact-job',
@@ -97,6 +147,16 @@ test('category recommendation enters Shopping Intelligence before exact-product 
   assert.equal(result.shopping?.stage, 'COMPLETE');
   assert.equal(result.shopping?.progress.normalizedCandidates, 24);
   assert.equal(result.product.ambiguous, false);
+});
+
+test('shopping output stays insufficient when every finalist still needs verification', async () => {
+  const result = await runAgentResearch({ query: '50만원 이하 43인치 4K 이동식 TV 가성비 추천해줘' }, {
+    publicSearch: async () => { throw new Error('legacy resolver must not run'); },
+    cloudResearch: async () => { throw new Error('legacy exact research must not run'); },
+    shoppingResearch: async () => shoppingResultWithTier('PROMISING_NEEDS_VERIFICATION'),
+  });
+
+  assert.equal(result.decision, 'INSUFFICIENT');
 });
 
 test('unsupported recommendation category preserves the legacy resolver path', async () => {
