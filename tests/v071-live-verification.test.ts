@@ -40,6 +40,19 @@ test('explicit Danawa URL preserves the requested exact product identity even wh
   ]);
 });
 
+test('explicit non-commerce URL never becomes a strong exact product target from query text alone', async () => {
+  const result = await resolveProduct({
+    question: EXACT_QUERY,
+    url: 'https://example.com/editorial/wideview-review',
+    category: 'product',
+  }, {
+    publicSearch: async () => [],
+  });
+
+  assert.equal(result.ambiguous, true);
+  assert.equal(result.target.kind, 'unknown');
+});
+
 test('Danawa page extractor preserves exact V3 bundle identity from page metadata', async () => {
   const html = `<!doctype html><html><head>
     <title>와이드뷰 QWGE43UT1 이동형 패키지 (와이드뷰 V3) : 다나와 가격비교</title>
@@ -103,6 +116,11 @@ test('conditional, regional, collect-on-delivery, or extra shipping remains unre
   }
 });
 
+test('an unlabeled free-shipping banner is not enough to establish product shipping economics', async () => {
+  const page = await fetchSellerShipping('이번 주 무료배송 이벤트');
+  assert.equal(page.facts?.shippingFee, undefined);
+});
+
 function naverPortalHtml(withSeller: boolean): string {
   return `<!doctype html><html><head>
     <meta property="og:title" content="와이드뷰 QWGE43UT1 + EKWBYME78W(V3) 43인치 이동형 패키지" />
@@ -125,6 +143,17 @@ test('Naver comparison portal auto-extracts attributable downstream seller links
   assert.equal(page.sellerLinks?.[0]?.sellerName, '11번가');
   assert.equal(page.sellerLinks?.[0]?.advertisedPrice, 365400);
   assert.equal(page.sellerLinks?.[0]?.advertisedShipping, 0);
+});
+
+test('comparison portal ignores unrelated external advertising links before seller expansion', async () => {
+  const html = `<!doctype html><html><head>
+    <meta property="og:title" content="와이드뷰 QWGE43UT1 + EKWBYME78W(V3) 43인치 이동형 패키지" />
+  </head><body>
+    <a href="https://ads.example.com/campaign">브랜드 광고 자세히 보기</a>
+    <a href="${NAVER_SELLER_URL}" data-seller-name="11번가" data-price="365400">11번가 365,400원</a>
+  </body></html>`;
+  const page = await fetchHtmlPage(NAVER_PORTAL_URL, html);
+  assert.deepEqual(page.sellerLinks?.map((item) => item.url), [NAVER_SELLER_URL]);
 });
 
 test('Naver 365,400 search metadata remains discovery-only when no downstream seller is verified', async () => {
