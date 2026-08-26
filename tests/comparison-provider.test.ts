@@ -203,3 +203,47 @@ test('embedded-only Danawa seller enters downstream exact seller verification', 
   assert.equal(offers[0]?.verificationTrace?.resolutionMethod, 'embedded_metadata');
   assert.equal(offers[0]?.verificationTrace?.comparisonAdvertisedPrice, 409000);
 });
+
+test('comparison bridge URL is resolved to the final seller before direct verification', async () => {
+  const comparisonUrl = 'https://prod.danawa.com/info/?pcode=128';
+  const bridgeUrl = 'https://prod.danawa.com/bridge?id=seller-6';
+  const sellerUrl = 'https://www.11st.co.kr/products/6?option=V3';
+  let bridgePageFetches = 0;
+  let sellerPageFetches = 0;
+  const base = context(async (url) => {
+    if (url === comparisonUrl) return comparisonPage(comparisonUrl, bridgeUrl, 399000);
+    if (url === bridgeUrl) {
+      bridgePageFetches += 1;
+      return { url, title: 'bridge', evidence: [] };
+    }
+    if (url === sellerUrl) {
+      sellerPageFetches += 1;
+      return sellerPage(sellerUrl, 399000, 0);
+    }
+    throw new Error(`unexpected URL ${url}`);
+  });
+  const ctx = {
+    ...base,
+    resolveSellerRedirect: async (url: string) => ({
+      originalUrl: url,
+      resolvedUrl: sellerUrl,
+      hops: [url, sellerUrl],
+      status: 'resolved' as const,
+    }),
+  };
+
+  const offers = await expandAndVerifySellers(
+    danawaProvider,
+    comparisonCandidate('danawa', comparisonUrl),
+    ctx,
+    createVerificationCache<DirectPageResult>(),
+  );
+
+  assert.equal(bridgePageFetches, 0);
+  assert.equal(sellerPageFetches, 1);
+  assert.equal(offers.length, 1);
+  assert.equal(offers[0]?.url, sellerUrl);
+  assert.equal(offers[0]?.verificationTrace?.resolutionMethod, 'redirect_resolution');
+  assert.equal(offers[0]?.verificationTrace?.originalSellerUrl, bridgeUrl);
+  assert.equal(offers[0]?.verificationTrace?.resolvedSellerUrl, sellerUrl);
+});
