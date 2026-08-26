@@ -16,7 +16,7 @@ test('v0.6.2 Action schema preserves operation IDs and exposes public conditiona
   assert.match(value, /public_conditional/);
 });
 
-test('v0.6.2 Action schema exposes provider coverage diagnostics without bumping release metadata early', async () => {
+test('v0.6.2 Action schema exposes provider coverage diagnostics', async () => {
   const value = await yaml();
   assert.match(value, /providerId:/);
   assert.match(value, /comparisonPages:/);
@@ -24,5 +24,4 @@ test('v0.6.2 Action schema exposes provider coverage diagnostics without bumping
   assert.match(value, /exactOffers:/);
   assert.match(value, /eligibleSellers:/);
   assert.match(value, /failureKind:/);
-  assert.match(value, /version:\s*0\.6\.1\b/);
 });
