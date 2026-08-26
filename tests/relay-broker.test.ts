@@ -15,6 +15,34 @@ async function waitForJob(broker: RelayBroker) {
   throw new Error('job did not enter queue');
 }
 
+test('broker availability diagnostics distinguish never-seen, online, and stale without secret fields', async () => {
+  let now = 1_000_000;
+  const broker = new RelayBroker({ secret, now: () => now, onlineTtlMs: 10_000 });
+  assert.deepEqual(broker.availabilityDiagnostic(), {
+    online: false,
+    state: 'never_seen',
+    lastSeenAt: null,
+    heartbeatAgeMs: null,
+    onlineTtlMs: 10_000,
+  });
+
+  assert.equal(await broker.poll(), null);
+  now += 1_000;
+  assert.deepEqual(broker.availabilityDiagnostic(), {
+    online: true,
+    state: 'online',
+    lastSeenAt: 1_000_000,
+    heartbeatAgeMs: 1_000,
+    onlineTtlMs: 10_000,
+  });
+
+  now += 10_000;
+  const stale = broker.availabilityDiagnostic();
+  assert.equal(stale.online, false);
+  assert.equal(stale.state, 'stale');
+  assert.doesNotMatch(JSON.stringify(stale), /secret|signature|token|nonce|payload/i);
+});
+
 test('broker is offline until a PC connector polls, then reports online for the TTL', async () => {
   let now = 1_000_000;
   const broker = new RelayBroker({ secret, now: () => now, onlineTtlMs: 10_000 });

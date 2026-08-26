@@ -1,5 +1,6 @@
 import { parseNaverProductUrl } from '../adapters/naver-product.ts';
 import { compileCanonicalIdentity } from '../core/canonical-identity.ts';
+import { isRelayDomainAllowed } from '../core/policy.ts';
 import { matchEvidenceToProduct } from '../core/product-match.ts';
 import type { NormalizedTarget, ProductCandidate, ProductResolution, ResearchRequest } from '../core/types.ts';
 import type { SearchHit } from '../providers/index.ts';
@@ -171,6 +172,55 @@ function resolvedWithCanonical(
   };
 }
 
+function isStrongExplicitCommerceHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, '');
+  if (isRelayDomainAllowed(host)) return true;
+  return host === 'e-himart.co.kr'
+    || host.endsWith('.e-himart.co.kr')
+    || host === 'store.kakao.com'
+    || host.endsWith('.store.kakao.com')
+    || host === 'toss.im'
+    || host.endsWith('.toss.im');
+}
+
+function resolveStrongExplicitCommerceUrl(request: ResearchRequest): ProductResolution | undefined {
+  if (!request.url) return undefined;
+  const requestedIdentity = querySeed(request.question);
+  if (!requestedIdentity.brand || !requestedIdentity.model) return undefined;
+
+  let url: URL;
+  try {
+    url = new URL(request.url);
+  } catch {
+    return undefined;
+  }
+  if (!isStrongExplicitCommerceHost(url.hostname)) return undefined;
+
+  const target: NormalizedTarget = {
+    ...requestedIdentity,
+    kind: 'product',
+    sourceHost: url.hostname,
+    canonicalUrl: url.toString(),
+  };
+  const confidence = 0.86;
+  return resolvedWithCanonical({
+    target,
+    confidence,
+    ambiguous: false,
+    candidates: [{
+      target,
+      score: confidence,
+      sourceUrls: [url.toString()],
+      title: requestedIdentity.name ?? request.question,
+    }],
+    identityEvidence: [{
+      title: requestedIdentity.name ?? request.question,
+      url: url.toString(),
+      score: confidence,
+    }],
+  }, request.question);
+}
+
 async function enrichParsedProduct(
   parsed: NormalizedTarget,
   request: ResearchRequest,
@@ -243,6 +293,8 @@ export async function resolveProduct(
         ...(requestedIdentity.name ? { name: requestedIdentity.name } : {}),
       }, request, deps);
     }
+    const explicitCommerceTarget = resolveStrongExplicitCommerceUrl(request);
+    if (explicitCommerceTarget) return explicitCommerceTarget;
   }
 
   const query = cleanQuestion(request.question);

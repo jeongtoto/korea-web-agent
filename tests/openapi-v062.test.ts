@@ -8,7 +8,7 @@ async function yaml(): Promise<string> {
   return readFile(schemaUrl, 'utf8');
 }
 
-test('v0.6.2 Action schema preserves operation IDs and exposes public conditional pricing additively', async () => {
+test('v0.7.1 Action schema preserves operation IDs and exposes public conditional pricing additively', async () => {
   const value = await yaml();
   assert.match(value, /operationId:\s*startProductResearch/);
   assert.match(value, /operationId:\s*getProductResearchResult/);
@@ -16,7 +16,7 @@ test('v0.6.2 Action schema preserves operation IDs and exposes public conditiona
   assert.match(value, /public_conditional/);
 });
 
-test('v0.6.2 Action schema exposes provider coverage diagnostics', async () => {
+test('v0.7.1 Action schema exposes provider coverage diagnostics', async () => {
   const value = await yaml();
   assert.match(value, /providerId:/);
   assert.match(value, /comparisonPages:/);

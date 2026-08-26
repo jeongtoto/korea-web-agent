@@ -22,6 +22,14 @@ export interface RelayBrokerOptions {
   idFactory?: () => string;
 }
 
+export interface RelayAvailabilityDiagnostic {
+  online: boolean;
+  state: 'never_seen' | 'online' | 'stale';
+  lastSeenAt: number | null;
+  heartbeatAgeMs: number | null;
+  onlineTtlMs: number;
+}
+
 const DEFAULT_FIELDS: RelayReadOnlyField[] = [
   'title',
   'price',
@@ -74,8 +82,29 @@ export class RelayBroker {
     return constantTimeStringEqual(header.slice('Bearer '.length), this.#secret);
   }
 
+  availabilityDiagnostic(): RelayAvailabilityDiagnostic {
+    if (this.#lastSeenAt <= 0) {
+      return {
+        online: false,
+        state: 'never_seen',
+        lastSeenAt: null,
+        heartbeatAgeMs: null,
+        onlineTtlMs: this.#onlineTtlMs,
+      };
+    }
+    const heartbeatAgeMs = Math.max(0, this.#now() - this.#lastSeenAt);
+    const online = heartbeatAgeMs <= this.#onlineTtlMs;
+    return {
+      online,
+      state: online ? 'online' : 'stale',
+      lastSeenAt: this.#lastSeenAt,
+      heartbeatAgeMs,
+      onlineTtlMs: this.#onlineTtlMs,
+    };
+  }
+
   async isAvailable(): Promise<boolean> {
-    return this.#lastSeenAt > 0 && this.#now() - this.#lastSeenAt <= this.#onlineTtlMs;
+    return this.availabilityDiagnostic().online;
   }
 
   lastSeenAt(): number | null {

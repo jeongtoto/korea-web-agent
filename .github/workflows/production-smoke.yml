@@ -20,14 +20,14 @@ jobs:
           url='https://korea-web-agent.netlify.app/api/health'
           for attempt in $(seq 1 35); do
             body="$(curl --fail --silent --show-error --max-time 15 "$url" || true)"
-            if echo "$body" | jq -e '.ok == true and .service == "korea-web-agent" and .version == "0.6.2" and .runtime == "netlify"' >/dev/null 2>&1; then
+            if echo "$body" | jq -e '.ok == true and .service == "korea-web-agent" and .version == "0.7.1" and .runtime == "netlify"' >/dev/null 2>&1; then
               echo "$body"
               exit 0
             fi
-            echo "Waiting for v0.6.2 production deploy ($attempt/35)..."
+            echo "Waiting for v0.7.1 production deploy ($attempt/35)..."
             sleep 4
           done
-          echo 'Netlify v0.6.2 health endpoint did not become ready in time.' >&2
+          echo 'Netlify v0.7.1 health endpoint did not become ready in time.' >&2
           exit 1
 
       - name: Verify PWA diagnostic shell
@@ -44,7 +44,8 @@ jobs:
           set -euo pipefail
           body="$(curl --fail --silent --show-error --max-time 15 https://korea-web-agent.netlify.app/api/relay/status)"
           echo "$body"
-          echo "$body" | jq -e 'has("enabled") and has("online") and has("lastSeenAt")' >/dev/null
+          echo "$body" | jq -e 'has("enabled") and has("online") and has("state") and has("lastSeenAt") and has("heartbeatAgeMs") and has("onlineTtlMs")' >/dev/null
+          echo "$body" | jq -e '.state == "not_configured" or .state == "never_seen" or .state == "online" or .state == "stale"' >/dev/null
 
       - name: Verify legacy research route validation
         shell: bash

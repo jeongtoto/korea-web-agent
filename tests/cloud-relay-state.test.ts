@@ -32,6 +32,43 @@ function job(id = 'research-1'): ResearchJob {
   };
 }
 
+test('persistent relay diagnostics distinguish never-seen, online, and stale heartbeat states', async () => {
+  const store = new MemoryStore();
+  assert.deepEqual(await getPersistentRelayStatus(store, 5_000, 1_000), {
+    online: false,
+    state: 'never_seen',
+    lastSeenAt: null,
+    heartbeatAgeMs: null,
+    onlineTtlMs: 1_000,
+  });
+
+  await markPersistentConnectorSeen(store, 5_000);
+  assert.deepEqual(await getPersistentRelayStatus(store, 5_400, 1_000), {
+    online: true,
+    state: 'online',
+    lastSeenAt: 5_000,
+    heartbeatAgeMs: 400,
+    onlineTtlMs: 1_000,
+  });
+
+  assert.deepEqual(await getPersistentRelayStatus(store, 6_001, 1_000), {
+    online: false,
+    state: 'stale',
+    lastSeenAt: 5_000,
+    heartbeatAgeMs: 1_001,
+    onlineTtlMs: 1_000,
+  });
+});
+
+test('persistent relay diagnostics contain heartbeat metadata only and no secret material', async () => {
+  const store = new MemoryStore();
+  await markPersistentConnectorSeen(store, 10_000);
+  const status = await getPersistentRelayStatus(store, 10_100, 500);
+  const serialized = JSON.stringify(status);
+  assert.doesNotMatch(serialized, /secret|signature|token|nonce|payload/i);
+  assert.deepEqual(Object.keys(status).sort(), ['heartbeatAgeMs', 'lastSeenAt', 'online', 'onlineTtlMs', 'state'].sort());
+});
+
 test('persistent relay survives independent store callers and completes the stored research job', async () => {
   const store = new MemoryStore();
   await saveResearchJob(store, job());
@@ -47,6 +84,7 @@ test('persistent relay survives independent store callers and completes the stor
   await markPersistentConnectorSeen(store, 1_100);
   const status = await getPersistentRelayStatus(store, 1_200, 500);
   assert.equal(status.online, true);
+  assert.equal(status.state, 'online');
 
   const polled = await pollPersistentRelay(store, 1_300);
   assert.equal(polled?.id, signed.id);
@@ -65,7 +103,9 @@ test('persistent relay survives independent store callers and completes the stor
 test('persistent relay reports offline outside TTL and queues multiple research jobs without overwriting', async () => {
   const store = new MemoryStore();
   await markPersistentConnectorSeen(store, 1_000);
-  assert.equal((await getPersistentRelayStatus(store, 2_000, 500)).online, false);
+  const stale = await getPersistentRelayStatus(store, 2_000, 500);
+  assert.equal(stale.online, false);
+  assert.equal(stale.state, 'stale');
 
   await saveResearchJob(store, job('research-1'));
   await saveResearchJob(store, job('research-2'));

@@ -24,6 +24,15 @@ interface PendingRelayRecord {
 }
 interface RelayQueueIndex { ids: string[] }
 
+export type PersistentRelayState = 'never_seen' | 'online' | 'stale';
+export interface PersistentRelayStatus {
+  online: boolean;
+  state: PersistentRelayState;
+  lastSeenAt: number | null;
+  heartbeatAgeMs: number | null;
+  onlineTtlMs: number;
+}
+
 const LAST_SEEN_KEY = 'relay:last-seen';
 const QUEUE_INDEX_KEY = 'relay:queue:index';
 const PENDING_PREFIX = 'relay:pending:';
@@ -92,12 +101,26 @@ export async function getPersistentRelayStatus(
   store: JsonKeyValueStore,
   nowMs = Date.now(),
   onlineTtlMs = DEFAULT_ONLINE_TTL_MS,
-): Promise<{ online: boolean; lastSeenAt: number | null }> {
+): Promise<PersistentRelayStatus> {
   const record = await store.getJSON<LastSeenRecord>(LAST_SEEN_KEY);
   const lastSeenAt = typeof record?.at === 'number' && Number.isFinite(record.at) ? record.at : null;
+  if (lastSeenAt === null) {
+    return {
+      online: false,
+      state: 'never_seen',
+      lastSeenAt: null,
+      heartbeatAgeMs: null,
+      onlineTtlMs,
+    };
+  }
+  const heartbeatAgeMs = Math.max(0, nowMs - lastSeenAt);
+  const online = heartbeatAgeMs <= onlineTtlMs;
   return {
-    online: lastSeenAt !== null && nowMs - lastSeenAt <= onlineTtlMs,
+    online,
+    state: online ? 'online' : 'stale',
     lastSeenAt,
+    heartbeatAgeMs,
+    onlineTtlMs,
   };
 }
 
