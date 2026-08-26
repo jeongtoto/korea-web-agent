@@ -5,7 +5,12 @@ import {
   type ReviewConsensus,
   type ReviewEvidence,
 } from './review-intelligence.ts';
-import type { ShoppingCandidate, ShoppingResearchPlan } from './types.ts';
+import type {
+  RecommendationRationale,
+  RecommendationTier,
+  ShoppingCandidate,
+  ShoppingResearchPlan,
+} from './types.ts';
 import { assessValue, type PriceStatus } from './value-model.ts';
 
 export interface ShoppingConfidenceDimensions {
@@ -26,6 +31,8 @@ export interface CandidateAssessment {
   recommendationScore: number;
   evidenceConfidence: number;
   confidenceDimensions: ShoppingConfidenceDimensions;
+  recommendationTier: RecommendationTier;
+  rationale: RecommendationRationale;
   strengths: string[];
   tradeoffs: string[];
   negativeSignals: string[];
@@ -39,6 +46,14 @@ export interface RankShoppingInput {
   reviews: ReviewEvidence[];
   offers?: MarketOffer[];
   personalizationAvailable?: boolean;
+}
+
+export interface RecommendationTierInput {
+  recommendationScore: number;
+  evidenceConfidence: number;
+  priceStatus: PriceStatus;
+  valueLed: boolean;
+  materialRepeatedNegative: boolean;
 }
 
 interface CandidateEconomics {
@@ -302,6 +317,16 @@ function evidenceUrls(candidate: ShoppingCandidate, reviews: ReviewEvidence[], e
   ].filter(Boolean))];
 }
 
+function materialNegativeTopics(reviews: Map<string, ReviewConsensus>): string[] {
+  return [...reviews.values()]
+    .filter((item) =>
+      item.negativeWeight > item.positiveWeight &&
+      item.independentSources >= 2 &&
+      item.confidence >= 0.7)
+    .sort((a, b) => b.confidence - a.confidence || a.topic.localeCompare(b.topic))
+    .map((item) => item.topic);
+}
+
 function explanation(
   dimensions: Record<string, number>,
   reviews: Map<string, ReviewConsensus>,
@@ -321,6 +346,60 @@ function explanation(
   if (!reviews.size) tradeoffs.push('independent_review_evidence_sparse');
   if (negativeSignals.length) tradeoffs.push(...negativeSignals.map((topic) => `negative:${topic}`));
   return { strengths, tradeoffs, negativeSignals };
+}
+
+function evidenceGaps(dimensions: ShoppingConfidenceDimensions, priceStatus: PriceStatus): string[] {
+  const gaps: string[] = [];
+  if (dimensions.officialSpecs < 0.55) gaps.push('official_specs_sparse');
+  if (dimensions.reviewConsensus < 0.55) gaps.push('independent_review_evidence_sparse');
+  if (dimensions.durability < 0.5) gaps.push('durability_evidence_sparse');
+  if (dimensions.serviceWarranty < 0.5) gaps.push('service_warranty_evidence_sparse');
+  if (priceStatus !== 'verified') gaps.push('verified_cash_price_unavailable');
+  return gaps;
+}
+
+function isValueLed(plan: ShoppingResearchPlan): boolean {
+  return plan.preferences.some((preference) => preference.dimension === 'value');
+}
+
+export function classifyRecommendationTier(input: RecommendationTierInput): RecommendationTier {
+  if (input.materialRepeatedNegative) return 'CAUTION';
+  if (input.recommendationScore < 0.68) return 'CAUTION';
+  if (input.valueLed && input.priceStatus !== 'verified') return 'PROMISING_NEEDS_VERIFICATION';
+  if (input.recommendationScore >= 0.78 && input.evidenceConfidence >= 0.72) return 'STRONG_RECOMMENDATION';
+  if (input.evidenceConfidence >= 0.55) return 'RECOMMENDED';
+  return 'PROMISING_NEEDS_VERIFICATION';
+}
+
+function buildRationale(
+  plan: ShoppingResearchPlan,
+  dimensions: Record<string, number>,
+  confidence: ShoppingConfidenceDimensions,
+  consensus: Map<string, ReviewConsensus>,
+  economics: CandidateEconomics,
+  bestValueEligible: boolean,
+  legacy: { strengths: string[]; tradeoffs: string[]; negativeSignals: string[] },
+): RecommendationRationale {
+  const whyItRanks = Object.entries(dimensions)
+    .filter(([, score]) => score >= 0.72)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([dimension]) => dimension);
+  const bestFor = plan.preferences
+    .filter((preference) => (dimensions[preference.dimension] ?? 0) >= 0.68)
+    .sort((a, b) => b.weight - a.weight)
+    .map((preference) => preference.dimension);
+  const repeatedNegativeTopics = materialNegativeTopics(consensus);
+
+  return {
+    whyItRanks,
+    bestFor,
+    tradeoffs: [...legacy.tradeoffs],
+    evidenceGaps: evidenceGaps(confidence, economics.priceStatus),
+    repeatedNegativeTopics,
+    priceStatus: economics.priceStatus,
+    bestValueEligible,
+  };
 }
 
 export function rankShoppingCandidates(input: RankShoppingInput): CandidateAssessment[] {
@@ -349,25 +428,51 @@ export function rankShoppingCandidates(input: RankShoppingInput): CandidateAsses
         : { fit: 1, quality: 0.55, reviewConsensus: aggregateCategoryReviewScore(consensus), serviceWarranty: 0.5, value: 0 };
     const merit = meritScore(input.plan.dimensionWeights, preliminaryDimensions);
     const visiblePrice = candidateEconomics.verifiedCashPrice ?? candidateEconomics.indicativePrice;
-    // Purchase-price certainty is kept out of product merit. If the exact page exposes the
-    // same item price but shipping is unresolved, recommendation merit remains unchanged;
-    // only priceVerification confidence and best-value eligibility are downgraded later.
+    const productConfidence = productEvidenceConfidence(confidence);
+    // Product merit uses visible exact-page economics without letting shipping certainty
+    // change the quality score. Price certainty remains authoritative for value labels/tier.
     const rankingValue = assessValue({
       merit,
-      evidenceConfidence: productEvidenceConfidence(confidence),
+      evidenceConfidence: productConfidence,
       priceStatus: visiblePrice !== undefined ? 'verified' : 'unknown',
+      ...(visiblePrice !== undefined ? { price: visiblePrice } : {}),
+      cohortPrices: priceCohort,
+    });
+    const actualValue = assessValue({
+      merit,
+      evidenceConfidence: productConfidence,
+      priceStatus: candidateEconomics.priceStatus,
       ...(visiblePrice !== undefined ? { price: visiblePrice } : {}),
       cohortPrices: priceCohort,
     });
     const dimensionScores = { ...preliminaryDimensions, value: rankingValue.qualityAdjustedValue };
     const recommendationScore = weightedScore(input.plan.dimensionWeights, dimensionScores);
     const explanations = explanation(dimensionScores, consensus, candidateEconomics);
+    const repeatedNegativeTopics = materialNegativeTopics(consensus);
+    const recommendationTier = classifyRecommendationTier({
+      recommendationScore,
+      evidenceConfidence,
+      priceStatus: candidateEconomics.priceStatus,
+      valueLed: isValueLed(input.plan),
+      materialRepeatedNegative: repeatedNegativeTopics.length > 0,
+    });
+    const rationale = buildRationale(
+      input.plan,
+      dimensionScores,
+      confidence,
+      consensus,
+      candidateEconomics,
+      actualValue.bestValueEligible,
+      explanations,
+    );
     const assessment: CandidateAssessment = {
       candidate,
       dimensionScores,
       recommendationScore,
       evidenceConfidence,
       confidenceDimensions: confidence,
+      recommendationTier,
+      rationale,
       strengths: explanations.strengths,
       tradeoffs: explanations.tradeoffs,
       negativeSignals: explanations.negativeSignals,
