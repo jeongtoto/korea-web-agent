@@ -80,6 +80,14 @@ function preliminaryOrder(candidates: ShoppingCandidate[], limit: number): Shopp
     .slice(0, limit);
 }
 
+function applyPurchaseContext(plan: ShoppingResearchPlan, context: PurchaseContext | undefined): ShoppingResearchPlan {
+  if (!context?.budget || plan.budget) return plan;
+  return {
+    ...plan,
+    budget: { max: context.budget, strength: 'hard' },
+  };
+}
+
 export async function runShoppingResearch(
   query: string,
   purchaseContext: PurchaseContext | undefined,
@@ -90,7 +98,7 @@ export async function runShoppingResearch(
   const errors: string[] = [];
 
   stage(stageHistory, 'PLANNING');
-  const plan = planShoppingResearch(query, purchaseContext);
+  const plan = applyPurchaseContext(planShoppingResearch(query), purchaseContext);
 
   stage(stageHistory, 'DISCOVERY');
   const rawHits = await discoverShoppingCandidates(plan, deps.publicSearch);
