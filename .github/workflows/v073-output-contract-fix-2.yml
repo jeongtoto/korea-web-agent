@@ -1,0 +1,61 @@
+name: v0.7.3 output contract fix 2
+
+on:
+  push:
+    branches: ['feature/v0.7.3-recommendation-output-contract']
+    paths: ['.github/workflows/v073-output-contract-fix-2.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v0.7.3-recommendation-output-contract
+      - name: Bind output to confirmed or provisional primary candidate
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('src/agent/research.ts')
+          s = p.read_text()
+          old = '''  const top = shopping.assessments[0];
+  const evidenceUrls = [...new Set(shopping.assessments.flatMap((item) => item.evidenceUrls))];
+  const hasRecommendations = shopping.assessments.length > 0;
+  const hasConfirmedRecommendation = shopping.assessments.some((item) =>
+    item.recommendationTier === 'STRONG_RECOMMENDATION' || item.recommendationTier === 'RECOMMENDED');
+'''
+          new = '''  const confirmed = shopping.assessments.find((item) =>
+    item.recommendationTier === 'STRONG_RECOMMENDATION' || item.recommendationTier === 'RECOMMENDED');
+  const promising = shopping.assessments.find((item) => item.recommendationTier === 'PROMISING_NEEDS_VERIFICATION');
+  const primary = confirmed ?? promising ?? shopping.assessments[0];
+  const evidenceUrls = [...new Set(shopping.assessments.flatMap((item) => item.evidenceUrls))];
+'''
+          if old not in s:
+              raise SystemExit('candidate-selection block not found')
+          s = s.replace(old, new, 1)
+          replacements = {
+            "      identityConfidence: top?.confidenceDimensions.identity ?? 0,": "      identityConfidence: primary?.confidenceDimensions.identity ?? 0,",
+            "    decision: hasConfirmedRecommendation ? 'BUY' : 'INSUFFICIENT',": "    decision: confirmed ? 'BUY' : 'INSUFFICIENT',",
+            "    confidence: top?.evidenceConfidence ?? 0,": "    confidence: primary?.evidenceConfidence ?? 0,",
+            "    summary: hasRecommendations\n      ? `시장 후보 ${shopping.progress.normalizedCandidates}개를 정규화하고 상위 ${shopping.assessments.length}개를 비교했습니다.`\n      : '정밀 쇼핑 조사를 완료했지만 최종 추천 근거가 충분하지 않습니다.',": "    summary: confirmed\n      ? `현재 기준 1순위 추천은 ${confirmed.candidate.title}입니다. 시장 후보 ${shopping.progress.normalizedCandidates}개를 정규화하고 상위 ${shopping.assessments.length}개를 비교했습니다.`\n      : promising\n        ? `확정 추천 기준을 통과한 후보는 없습니다. 현재 가장 유망한 잠정 후보는 ${promising.candidate.title}이며 추가 검증이 필요합니다.`\n        : primary\n          ? '확정 추천 기준을 통과한 후보는 없습니다. 현재 후보에는 주의 신호가 있어 구매 추천하지 않습니다.'\n          : '정밀 쇼핑 조사를 완료했지만 최종 추천 근거가 충분하지 않습니다.',",
+            "    reasons: top?.strengths ?? [],": "    reasons: primary?.strengths ?? [],",
+            "    strengths: top?.strengths ?? [],": "    strengths: primary?.strengths ?? [],",
+            "    weaknesses: top?.negativeSignals ?? [],": "    weaknesses: primary?.negativeSignals ?? [],",
+            "    missingInformation: top?.tradeoffs ?? ['조건을 만족하는 검증된 추천 후보가 부족합니다.'],": "    missingInformation: primary\n      ? [...new Set([...primary.rationale.evidenceGaps, ...primary.tradeoffs])]\n      : ['조건을 만족하는 검증된 추천 후보가 부족합니다.'],",
+            "      confidence: top?.evidenceConfidence ?? 0,": "      confidence: primary?.evidenceConfidence ?? 0,",
+          }
+          for old_text, new_text in replacements.items():
+              if old_text not in s:
+                  raise SystemExit(f'target not found: {old_text}')
+              s = s.replace(old_text, new_text, 1)
+          p.write_text(s)
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/agent/research.ts
+          git commit -m "fix: bind shopping output to verified recommendation tier"
+          git push origin HEAD:feature/v0.7.3-recommendation-output-contract
