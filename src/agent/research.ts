@@ -261,6 +261,8 @@ function shapeAgentShoppingResult(
   const top = shopping.assessments[0];
   const evidenceUrls = [...new Set(shopping.assessments.flatMap((item) => item.evidenceUrls))];
   const hasRecommendations = shopping.assessments.length > 0;
+  const hasConfirmedRecommendation = shopping.assessments.some((item) =>
+    item.recommendationTier === 'STRONG_RECOMMENDATION' || item.recommendationTier === 'RECOMMENDED');
   const result: AgentResearchResult = {
     status: shopping.partial ? 'partial' : 'completed',
     query: input.query,
@@ -271,7 +273,7 @@ function shapeAgentShoppingResult(
       ambiguous: false,
       candidates: [],
     },
-    decision: hasRecommendations ? 'BUY' : 'INSUFFICIENT',
+    decision: hasConfirmedRecommendation ? 'BUY' : 'INSUFFICIENT',
     confidence: top?.evidenceConfidence ?? 0,
     shopping,
     relay: {
