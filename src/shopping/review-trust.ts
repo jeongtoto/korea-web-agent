@@ -23,6 +23,10 @@ function canonicalHost(url: string): string {
   }
 }
 
+function normalizedIdentity(value: string | undefined): string {
+  return (value ?? '').normalize('NFKC').trim().toLowerCase();
+}
+
 export function reviewClaimFingerprint(claim: string): string {
   return claim
     .normalize('NFKC')
@@ -93,8 +97,10 @@ export function collapseReviewIndependence(items: ReviewEvidence[]): ReviewEvide
   for (const item of items) {
     const fingerprint = item.claimFingerprint ?? reviewClaimFingerprint(item.claim);
     const host = canonicalHost(item.sourceUrl);
-    const author = (item.authorKey ?? '').normalize('NFKC').trim().toLowerCase();
-    const key = `${item.candidateKey}|${item.topic}|${host}|${author}|${fingerprint}`;
+    // Existing independenceKey is an explicit author/channel/source-family identity.
+    // When authorKey is available it is more specific; otherwise preserve independenceKey.
+    const sourceIdentity = normalizedIdentity(item.authorKey) || normalizedIdentity(item.independenceKey);
+    const key = `${item.candidateKey}|${item.topic}|${host}|${sourceIdentity}|${fingerprint}`;
     const normalized: ReviewEvidence = { ...item, claimFingerprint: fingerprint };
     const existing = sameOrigin.get(key);
     if (!existing || (normalized.effectiveWeight ?? normalized.confidence) > (existing.effectiveWeight ?? existing.confidence)) {
@@ -106,7 +112,10 @@ export function collapseReviewIndependence(items: ReviewEvidence[]): ReviewEvide
   const fingerprintCounts = new Map<string, number>();
   return collapsed.map((item) => {
     const fingerprint = item.claimFingerprint ?? reviewClaimFingerprint(item.claim);
-    const groupKey = `${item.candidateKey}|${item.topic}|${fingerprint}`;
+    const sourceIdentity = normalizedIdentity(item.authorKey) || normalizedIdentity(item.independenceKey);
+    // Diminishing weight applies to the same asserted source identity syndicated across hosts,
+    // not to genuinely distinct authors who happen to describe the same defect similarly.
+    const groupKey = `${item.candidateKey}|${item.topic}|${sourceIdentity}|${fingerprint}`;
     const index = fingerprintCounts.get(groupKey) ?? 0;
     fingerprintCounts.set(groupKey, index + 1);
     const independenceConfidence = index === 0 ? 1 : index === 1 ? 0.35 : 0.15;
