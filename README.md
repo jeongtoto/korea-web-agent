@@ -1,4 +1,4 @@
-# Korea Web Agent v0.6
+# Korea Web Agent v0.6.2
 
 Korea Web Agent is a read-only Korean product-research backend designed to be called from a dedicated Custom GPT. The primary experience is now natural-language product research inside ChatGPT; the existing PWA remains available as a diagnostic/manual testing surface.
 
@@ -8,18 +8,21 @@ Example:
 와이드뷰 43인치 4K V3 스탠드 어때?
 ```
 
-The agent resolves an exact product or a recommendation category, gathers attributable public evidence, normalizes multi-market offers, and conditionally asks a locally authenticated PC browser to verify up to eight difficult commerce pages. It separates cash, owned-card, membership/coupon, points-adjusted, refurb/open-box, and used prices and returns a conservative `BUY / WAIT / SKIP / INSUFFICIENT` result plus Best 3 recommendations when appropriate.
+The agent resolves an exact product or a recommendation category, gathers attributable public evidence, normalizes multi-market offers, and conditionally asks a locally authenticated PC browser to verify up to eight difficult commerce pages. It separates cash, owned-card, public conditional, account-personalized, points-adjusted, refurb/open-box, and used prices and returns a conservative `BUY / WAIT / SKIP / INSUFFICIENT` result plus Best 3 recommendations when appropriate.
 
-## v0.6 cloud-first shopping behavior
+## v0.6.2 Provider v2 coverage
 
-- Explicit market coverage for Naver, Coupang, KREAM, Danawa, Enuri, major open markets/retailers, official/offline discovery, overseas marketplaces, refurb/returns, and used marketplaces.
-- Exact SKU, variant, bundle, condition, availability, shipping, and verification tier are part of offer eligibility.
-- `totalCashPrice`, owned-card `cardPrice`, conditional `paymentPrice`, and points-adjusted `effectivePrice` are ranked separately.
+- Provider v2 executes 13 required domestic commerce channels in a deterministic registry: Naver Shopping, Coupang, Danawa, Enuri, 11st, Gmarket, Auction, SSG, Lotte ON, Lotte Hi-Mart, official stores, Kakao TalkDeal, and Toss Shopping.
+- Danawa and Enuri comparison-page prices are discovery signals only. Seller expansion follows the downstream seller and verifies exact identity, price, and shipping before an offer can become decisive.
+- Exact SKU, variant, bundle, condition, availability, shipping, and verification tier are part of offer eligibility. Unknown or non-deterministic mandatory shipping/fees cannot win the cash ranking.
+- `totalCashPrice`, owned-card `cardPrice`, public `publicConditional`, account/personalized values, and points-adjusted `effectivePrice` are ranked separately. A public coupon/payment condition does not masquerade as unconditional cash.
+- Active unconditional public deals such as an eligible TalkDeal may qualify as cash; public conditional deals require their current promotion condition to be verified; account-only prices remain personalization.
+- AliExpress and Temu are outside the 13 required Provider v2 execution set in v0.6.2. They may still appear through legacy/general discovery, but they do not satisfy required domestic provider coverage.
+- Login-only/account-personalized values are optional Relay enrichment. They never replace public cash history or override a verified public cash winner.
 - Request-scoped `paymentMethods` supports public conditions such as Toss Pay, Kakao Pay, Naver Pay, and PAYCO without requiring a persistent user profile.
-- Exact normalized SKU price observations are retained for 183 days to report previous-price movement and six-month position.
+- Exact normalized SKU public-cash observations are retained for 183 days to report previous-price movement and six-month position; deduped comparison/search evidence and personalized Relay values are excluded from that history.
 - ChatGPT Action research is queued into a Netlify Background Function so long-running public research does not depend on the user's PC.
-- A card promotion cannot win the owned-card ranking unless the request says the user owns that card.
-- Search metadata remains discovery-grade; authenticated page reads replace the same URL with a higher verification tier.
+- Search metadata and comparison advertisements remain discovery-grade; decisive offers require the stronger identity/price/shipping gates defined by the provider pipeline.
 - The signed read-only Relay can inspect a bounded batch of at most eight URLs in one browser session.
 - Category questions such as bedding selection produce up to five scored candidates and a Best 3 based on fit, quality, reviews, design, care, risk, and value.
 - `manualChecks` contains only login/CAPTCHA, card/membership ownership, offline quote, availability, or used-condition checks that require a person.
@@ -190,7 +193,7 @@ Optional URL request:
 Status endpoint:
 
 ```text
-GET /api/agent/jobs/<job-id>
+GET /api/agent/job?jobId=<job-id>
 Authorization: Bearer <KWA_ACTION_API_KEY>
 ```
 
@@ -217,7 +220,7 @@ openapi/korea-web-agent-action.yaml
 The schema defines:
 
 - `startProductResearch` -> `POST /api/agent/research`
-- `getProductResearchResult` -> `GET /api/agent/jobs/{id}`
+- `getProductResearchResult` -> `GET /api/agent/job?jobId=<job-id>`
 - HTTP bearer authentication
 
 In the Custom GPT Action configuration, use the separate `KWA_ACTION_API_KEY` as the bearer/API key credential. Keep the GPT private (`Only me`) for a personal deployment.
@@ -276,16 +279,16 @@ Important invariants:
 
 ## Source acquisition
 
-The public research layer can query, when relevant:
+Provider v2 required domestic commerce coverage is the 13-channel registry listed above. The broader public research layer may also query, when relevant:
 
 - manufacturer/distributor pages
 - Naver Shopping / Brand Store / SmartStore
 - Coupang
-- Danawa
-- KREAM and Enuri
-- 11st, Gmarket, Auction, SSG, and Lotte ON
-- official/offline dealer discovery
-- AliExpress and Temu
+- Danawa and Enuri comparison discovery
+- 11st, Gmarket, Auction, SSG, Lotte ON, and Lotte Hi-Mart
+- official-store discovery
+- Kakao TalkDeal and Toss Shopping
+- AliExpress and Temu as non-required legacy/general discovery sources
 - refurb, return, and display listings
 - Karrot, Joonggonara, and Bunjang
 - Naver Blog / Cafe
@@ -295,7 +298,7 @@ The public research layer can query, when relevant:
 - official/certification sources
 - peer-reviewed research when the question calls for it
 
-Most Korean source families currently use public search metadata unless a direct page/structured-data or dedicated provider path succeeds. Direct sites may rate-limit server-side requests; the engine records blocked sources and degrades to other evidence instead of fabricating fields.
+Search/comparison metadata is discovery-grade. Provider v2 expands comparison results to attributable downstream seller pages where applicable; decisive purchase economics require exact identity plus usable page/checkout price and deterministic mandatory shipping. Direct sites may rate-limit server-side requests; the engine records blocked sources and degrades to other evidence instead of fabricating fields.
 
 ## Current limitations
 
@@ -318,4 +321,4 @@ npm run build
 npm audit --omit=dev --audit-level=high
 ```
 
-Tests cover URL safety, Shopping Live parsing, intent classification, query-only product resolution, ambiguity, exact-product matching, generic-evidence rejection, source planning, conservative search signals, price-gated decisions, confidence anti-inflation, relay signatures/sanitization, site-aware authenticated extraction, async relay merge, Action API contract/authentication, and deterministic WideView end-to-end acceptance.
+Tests cover URL safety, Shopping Live parsing, intent classification, query-only product resolution, ambiguity, exact-product matching, generic-evidence rejection, source planning, conservative search signals, provider-registry coverage, downstream seller expansion, shipping and promotion gates, economic dedupe/cache behavior, public-history isolation, price-gated decisions, confidence anti-inflation, relay signatures/sanitization, site-aware authenticated extraction, async relay merge, Action API contract/authentication, and deterministic WideView v0.6.2 end-to-end acceptance.
