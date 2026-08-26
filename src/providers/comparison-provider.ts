@@ -59,7 +59,7 @@ function isComparisonBridgeUrl(input: string, providerId: MarketProviderDefiniti
   }
 }
 
-async function resolveComparisonBridgeCandidates(
+export async function resolveComparisonBridgeCandidates(
   candidates: SellerCandidate[],
   context: MarketProviderContext,
   providerId: MarketProviderDefinition['id'],
