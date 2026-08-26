@@ -43,6 +43,11 @@ function priceLines(report: ProductReport): string[] {
     ? `- 현금 결제: **${won(cash.amount)}** · ${cash.offer.market} · ${cash.offer.verification}`
     : '- 현금 결제: 검증 완료 가격 없음');
 
+  const publicConditional = report.bestOffers?.publicConditional;
+  lines.push(publicConditional
+    ? `- 공개 조건가: **${won(publicConditional.amount)}** · ${publicConditional.offer.market}${publicConditional.offer.promotion?.condition ? ` · ${publicConditional.offer.promotion.condition}` : ''}`
+    : '- 공개 조건가: 검증된 현재 적용가 없음');
+
   const owned = report.bestOffers?.ownedCard;
   lines.push(owned
     ? `- 보유 카드: **${won(owned.amount)}**${owned.offer.cardName ? ` · ${owned.offer.cardName}` : ''}`
@@ -87,7 +92,15 @@ function historyLines(report: ProductReport): string[] {
 
 function coverageLines(coverage: MarketCoverage[] | undefined): string[] {
   if (!coverage?.length) return ['- 시장별 검증 기록 없음'];
-  return coverage.map((item) => `- ${item.market}: ${item.status} · 발견 ${item.found} / 검증 ${item.verified}`);
+  return coverage.map((item) => {
+    const diagnostics: string[] = [];
+    if (item.comparisonPages !== undefined) diagnostics.push(`비교페이지 ${item.comparisonPages}`);
+    if (item.expandedSellers !== undefined) diagnostics.push(`판매자 확장 ${item.expandedSellers}`);
+    if (item.exactOffers !== undefined) diagnostics.push(`exact ${item.exactOffers}`);
+    if (item.eligibleSellers !== undefined) diagnostics.push(`eligible ${item.eligibleSellers}`);
+    if (item.failureKind) diagnostics.push(`실패 ${item.failureKind}`);
+    return `- ${item.market}: ${item.status} · 발견 ${item.found} / 검증 ${item.verified}${diagnostics.length ? ` · ${diagnostics.join(' · ')}` : ''}`;
+  });
 }
 
 function limitationLines(report: ProductReport): string[] {

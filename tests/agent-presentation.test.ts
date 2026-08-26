@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compileCanonicalIdentity } from '../src/core/canonical-identity.ts';
 import { shapeAgentResearchJob } from '../src/agent/research.ts';
-import type { ResearchJob } from '../src/core/types.ts';
+import type { MarketOffer, ResearchJob } from '../src/core/types.ts';
 
 function job(): ResearchJob {
   const target = {
@@ -77,6 +77,38 @@ function job(): ResearchJob {
   };
 }
 
+function verifiedOffer(overrides: Partial<MarketOffer> = {}): MarketOffer {
+  return {
+    id: 'danawa:seller:1',
+    market: '판매자몰',
+    title: '와이드뷰 QWGE43UT1 + EKWBYME78W(V3) 43인치 신품 패키지',
+    url: 'https://seller.example.com/products/1',
+    currency: 'KRW',
+    retrievedAt: '2026-08-25T07:00:00.000Z',
+    verification: 'page_verified',
+    condition: 'new',
+    identityScore: 1,
+    bundleComplete: true,
+    eligible: true,
+    identityVerdict: 'exact',
+    constraintStatus: 'eligible',
+    fieldVerification: {
+      identity: 'page_verified',
+      price: 'page_verified',
+      shipping: 'page_verified',
+    },
+    salePrice: 399000,
+    shippingFee: 0,
+    shipping: { status: 'free', verification: 'page_verified' },
+    totalCashPrice: 399000,
+    availability: 'InStock',
+    conditions: [],
+    riskFlags: [],
+    exclusionReasons: [],
+    ...overrides,
+  };
+}
+
 test('terminal Action result preserves existing fields and exposes validated presentation metadata', () => {
   const shaped = shapeAgentResearchJob(job()) as any;
 
@@ -98,6 +130,55 @@ test('terminal Action result preserves existing fields and exposes validated pre
   assert.match(shaped.presentation?.markdown ?? '', /Relay|릴레이|PC/);
   assert.equal(shaped.canonicalIdentity?.primary?.model, 'QWGE43UT1');
   assert.ok(shaped.canonicalIdentity?.requiredComponents?.some((item: any) => item.model === 'EKWBYME78W'));
+});
+
+test('presentation renders unconditional cash and current public conditional price separately', () => {
+  const value = job();
+  const cash = verifiedOffer();
+  const conditional = verifiedOffer({
+    id: 'danawa:seller:conditional',
+    couponPrice: 379000,
+    promotion: {
+      type: 'public_coupon',
+      active: true,
+      accountRequired: false,
+      condition: '누구나 다운로드 가능한 공개 쿠폰',
+    },
+  });
+  value.report!.decision = 'BUY';
+  value.report!.summary = '현금가와 공개 조건가를 분리해 확인했습니다.';
+  value.report!.offers = [cash, conditional];
+  value.report!.bestOffers = {
+    cash: { basis: 'cash', rank: 1, amount: 399000, offer: cash, reasons: [] },
+    publicConditional: {
+      basis: 'public_conditional',
+      rank: 1,
+      amount: 379000,
+      offer: conditional,
+      reasons: ['공개 쿠폰 조건'],
+    },
+  };
+  value.report!.marketCoverage = [{
+    providerId: 'danawa',
+    market: '다나와',
+    attempted: true,
+    found: 2,
+    verified: 1,
+    status: 'verified',
+    comparisonPages: 2,
+    expandedSellers: 4,
+    exactOffers: 1,
+    eligibleSellers: 1,
+  }];
+
+  const shaped = shapeAgentResearchJob(value) as any;
+  const markdown = shaped.presentation?.markdown ?? '';
+  assert.match(markdown, /현금 결제[^\n]*399,000원/);
+  assert.match(markdown, /공개 조건가[^\n]*379,000원/);
+  assert.match(markdown, /다나와/);
+  assert.match(markdown, /판매자 확장\s*4|확장\s*4/);
+  assert.doesNotMatch(markdown, /모든 시장|전체 시장|all markets/i);
+  assert.equal(shaped.bestOffers?.publicConditional?.basis, 'public_conditional');
 });
 
 test('queued/running Action shape remains pollable without requiring presentation fields', () => {

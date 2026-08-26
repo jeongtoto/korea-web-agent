@@ -1,5 +1,11 @@
 import { assertPublicUrl } from '../core/policy.ts';
-import type { EvidenceItem } from '../core/types.ts';
+import type { EvidenceItem, PromotionState, SellerInfo } from '../core/types.ts';
+import {
+  matchingMarketExtractor,
+  type ExtractedSellerLink,
+  type MarketExtraction,
+  type MarketPageExtractor,
+} from './market-extractor.ts';
 
 const MAX_HTML_BYTES = 2_000_000;
 
@@ -39,6 +45,9 @@ export interface DirectPageResult {
   siteName?: string;
   product?: StructuredProduct;
   facts?: DirectProductFacts;
+  sellerLinks?: ExtractedSellerLink[];
+  promotion?: PromotionState;
+  sellerInfo?: SellerInfo;
   evidence: EvidenceItem[];
 }
 
@@ -212,6 +221,26 @@ function parseProduct(html: string): StructuredProduct | undefined {
   return undefined;
 }
 
+function mergeProduct(
+  generic: StructuredProduct | undefined,
+  specific: StructuredProduct | undefined,
+): StructuredProduct | undefined {
+  if (!generic) return specific ? { ...specific } : undefined;
+  if (!specific) return { ...generic };
+  const attributes = generic.attributes || specific.attributes
+    ? { ...(generic.attributes ?? {}), ...(specific.attributes ?? {}) }
+    : undefined;
+  const offers = generic.offers || specific.offers
+    ? { ...(generic.offers ?? {}), ...(specific.offers ?? {}) }
+    : undefined;
+  return {
+    ...generic,
+    ...specific,
+    ...(attributes ? { attributes } : {}),
+    ...(offers ? { offers } : {}),
+  };
+}
+
 function productFacts(product: StructuredProduct | undefined): DirectProductFacts | undefined {
   if (!product) return undefined;
   const facts: DirectProductFacts = {};
@@ -225,6 +254,22 @@ function productFacts(product: StructuredProduct | undefined): DirectProductFact
   if (product.offers?.shippingFee !== undefined) facts.shippingFee = product.offers.shippingFee;
   if (product.attributes) facts.attributes = { ...product.attributes };
   return Object.keys(facts).length ? facts : undefined;
+}
+
+function mergeFacts(
+  generic: DirectProductFacts | undefined,
+  specific: DirectProductFacts | undefined,
+): DirectProductFacts | undefined {
+  if (!generic) return specific ? { ...specific } : undefined;
+  if (!specific) return { ...generic };
+  const attributes = generic.attributes || specific.attributes
+    ? { ...(generic.attributes ?? {}), ...(specific.attributes ?? {}) }
+    : undefined;
+  return {
+    ...generic,
+    ...specific,
+    ...(attributes ? { attributes } : {}),
+  };
 }
 
 async function fetchWithSafeRedirects(input: URL, fetchImpl: typeof fetch, maxRedirects = 5): Promise<{ response: Response; url: URL }> {
@@ -249,7 +294,11 @@ async function fetchWithSafeRedirects(input: URL, fetchImpl: typeof fetch, maxRe
   throw new Error('Too many redirects');
 }
 
-export async function fetchDirectPage(input: string, fetchImpl: typeof fetch = fetch): Promise<DirectPageResult> {
+export async function fetchDirectPage(
+  input: string,
+  fetchImpl: typeof fetch = fetch,
+  extractor?: MarketPageExtractor | readonly MarketPageExtractor[],
+): Promise<DirectPageResult> {
   const initialUrl = assertPublicUrl(input);
   const { response, url } = await fetchWithSafeRedirects(initialUrl, fetchImpl);
   if (!response.ok) throw new Error(`Page fetch failed with HTTP ${response.status}`);
@@ -258,12 +307,15 @@ export async function fetchDirectPage(input: string, fetchImpl: typeof fetch = f
   const html = await response.text();
   if (new TextEncoder().encode(html).byteLength > MAX_HTML_BYTES) throw new Error('Page is too large to analyze safely');
 
+  const retrievedAt = new Date().toISOString();
+  const selectedExtractor = matchingMarketExtractor(extractor, url);
+  const extraction: MarketExtraction | undefined = selectedExtractor?.extract({ url, html, retrievedAt });
   const title = titleContent(html);
   const description = metaContent(html, 'name', 'description') ?? metaContent(html, 'property', 'og:description');
   const siteName = metaContent(html, 'property', 'og:site_name');
-  const product = parseProduct(html);
-  const facts = productFacts(product);
-  const retrievedAt = new Date().toISOString();
+  const genericProduct = parseProduct(html);
+  const product = mergeProduct(genericProduct, extraction?.product);
+  const facts = mergeFacts(productFacts(product), extraction?.facts);
   const evidence: EvidenceItem[] = [];
 
   if (title || description) {
@@ -292,12 +344,12 @@ export async function fetchDirectPage(input: string, fetchImpl: typeof fetch = f
     evidence.push({
       claim: structuredBits.join(' / '),
       sourceUrl: url.toString(),
-      sourceType: 'json_ld_product',
+      sourceType: selectedExtractor ? `market_extractor:${selectedExtractor.id}` : 'json_ld_product',
       retrievedAt,
-      acquisitionMethod: 'structured_data',
+      acquisitionMethod: selectedExtractor ? 'static_html' : 'structured_data',
       evidenceClass: 'retailer_listing',
-      independenceKey: `${url.hostname}${url.pathname}:jsonld-product`,
-      confidence: 0.78,
+      independenceKey: `${url.hostname}${url.pathname}:${selectedExtractor ? `market-${selectedExtractor.id}` : 'jsonld-product'}`,
+      confidence: selectedExtractor ? 0.82 : 0.78,
       specificity: 'exact_product',
       data: { product, ...(facts ? { facts } : {}) },
     });
@@ -309,5 +361,8 @@ export async function fetchDirectPage(input: string, fetchImpl: typeof fetch = f
   if (siteName) result.siteName = siteName;
   if (product) result.product = product;
   if (facts) result.facts = facts;
+  if (extraction?.sellerLinks?.length) result.sellerLinks = extraction.sellerLinks.map((item) => ({ ...item }));
+  if (extraction?.promotion) result.promotion = { ...extraction.promotion };
+  if (extraction?.sellerInfo) result.sellerInfo = { ...extraction.sellerInfo };
   return result;
 }

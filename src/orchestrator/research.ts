@@ -24,11 +24,19 @@ import { fetchDirectPage, type DirectPageResult } from '../providers/direct-page
 import { searchDuckDuckGo } from '../providers/duckduckgo.ts';
 import { searchCrossref } from '../providers/crossref.ts';
 import type { SearchHit } from '../providers/index.ts';
+import { deduplicateSellerOffers } from '../providers/offer-dedupe.ts';
+import {
+  createMarketProviderRegistry,
+  listMarketProviderDefinitions,
+} from '../providers/provider-registry.ts';
 import { toRelayProductHint, type RelayProductHint } from '../relay/protocol.ts';
 import { buildSourcePlan, shouldUseAcademicResearch, type SourceQuery } from '../providers/source-plan.ts';
 import { buildMarketOffer, rankMarketOffers } from '../core/offer-engine.ts';
 import { buildRecommendations } from '../core/recommendation-engine.ts';
-import { researchProviderSource } from './provider-pipeline.ts';
+import {
+  researchProviderSource,
+  runMarketProviderCoverage,
+} from './provider-pipeline.ts';
 
 export interface RelayClient {
   isAvailable(): Promise<boolean>;
@@ -267,23 +275,6 @@ function retailerSource(source: SourceQuery): boolean {
   return source.evidenceClass === 'retailer_listing' && source.specificity === 'exact_product';
 }
 
-function deduplicateOffers(offers: MarketOffer[]): MarketOffer[] {
-  const byUrl = new Map<string, MarketOffer>();
-  for (const offer of offers) {
-    const current = byUrl.get(offer.url);
-    if (!current) {
-      byUrl.set(offer.url, offer);
-      continue;
-    }
-    const verificationRank = (value: MarketOffer) => value.verification === 'checkout_verified' ? 3 : value.verification === 'page_verified' ? 2 : value.verification === 'search_metadata' ? 1 : 0;
-    if (Number(offer.eligible) > Number(current.eligible)
-      || (offer.eligible === current.eligible && verificationRank(offer) > verificationRank(current))) {
-      byUrl.set(offer.url, offer);
-    }
-  }
-  return [...byUrl.values()];
-}
-
 export async function runResearch(
   request: ResearchRequest,
   deps: ResearchDependencies = createDefaultResearchDependencies(),
@@ -327,8 +318,61 @@ export async function runResearch(
   const canonicalIdentity = providedCanonical
     ?? (target.kind === 'product' ? compileCanonicalIdentity(target, question) : undefined);
   const sourcePlan = buildSourcePlan(target, request.question);
+  const requiredProviderIds = new Set(listMarketProviderDefinitions().map((provider) => provider.id));
+
+  if (sourcePlan.length && canonicalIdentity) {
+    const providers = await createMarketProviderRegistry();
+    const providerCoverage = await runMarketProviderCoverage({
+      providers,
+      target,
+      canonicalIdentity,
+      constraints,
+      publicSearch: deps.publicSearch,
+      directPage: deps.directPage,
+      now: deps.now,
+      legacyFallback: async (provider) => {
+        const source = sourcePlan.find((item) => item.id === provider.id);
+        if (!source) return null;
+        return researchProviderSource({
+          source,
+          target,
+          canonicalIdentity,
+          constraints,
+          publicSearch: deps.publicSearch,
+          directPage: deps.directPage,
+          now: deps.now,
+        });
+      },
+    });
+
+    providerAttempts.push(...providerCoverage.attempts);
+    pipelineOffers.push(...providerCoverage.offers);
+    evidence.push(...providerCoverage.evidence);
+
+    for (const attempt of providerCoverage.attempts) {
+      const sourceName = attempt.providerId ?? attempt.market;
+      const failed = attempt.status === 'failed';
+      const message = failed
+        ? attempt.failureMessage ?? attempt.failureKind ?? 'provider failed'
+        : undefined;
+      const providerEvidence = providerCoverage.evidence.filter((item) => item.sourceType === sourceName);
+      if (message) errors.push(`${sourceName}: ${message}`);
+      sourceResults.push(sourceResult(
+        sourceName,
+        !failed,
+        attempt.attemptedAt,
+        attempt.completedAt ?? timestamp(deps),
+        providerEvidence,
+        message,
+      ));
+    }
+  }
+
   if (sourcePlan.length) {
-    const searchOutcomes = await Promise.all(sourcePlan.map(async (source) => {
+    const supportingPlan = canonicalIdentity
+      ? sourcePlan.filter((source) => !requiredProviderIds.has(source.id as never))
+      : sourcePlan;
+    const searchOutcomes = await Promise.all(supportingPlan.map(async (source) => {
       const startedAt = timestamp(deps);
       const sourceName = source.id === 'general' ? 'public_search' : source.id;
       if (retailerSource(source) && canonicalIdentity) {
@@ -363,7 +407,6 @@ export async function runResearch(
 
     for (const outcome of searchOutcomes) {
       if ('provider' in outcome) {
-        providerAttempts.push(outcome.provider.attempt);
         pipelineOffers.push(...outcome.provider.offers);
         evidence.push(...outcome.provider.evidence);
         const failed = outcome.provider.attempt.status === 'failed';
@@ -482,7 +525,7 @@ export async function runResearch(
       }
       return [built];
     });
-    const deduplicatedOffers = deduplicateOffers([...evidenceOffers, ...pipelineOffers])
+    const deduplicatedOffers = deduplicateSellerOffers([...evidenceOffers, ...pipelineOffers])
       .sort((a, b) => Number(b.eligible) - Number(a.eligible)
         || Math.min(a.cardPrice ?? Infinity, a.paymentPrice ?? Infinity, a.totalCashPrice ?? Infinity, a.effectivePrice ?? Infinity)
           - Math.min(b.cardPrice ?? Infinity, b.paymentPrice ?? Infinity, b.totalCashPrice ?? Infinity, b.effectivePrice ?? Infinity)

@@ -10,6 +10,8 @@ import type {
   RankedOffer,
 } from './types.ts';
 import type { SearchHit } from '../providers/index.ts';
+import { resolveShippingCost } from '../providers/shipping.ts';
+import { isCurrentPublicPromotion } from '../providers/promotion.ts';
 
 const MARKET_DOMAINS: Array<[RegExp, string]> = [
   [/(^|\.)kream\.co\.kr$/, 'KREAM'],
@@ -140,40 +142,106 @@ function fieldVerificationSupportsDecision(offer: MarketOffer): boolean {
     && strongVerification(offer.fieldVerification.shipping);
 }
 
-export function isDecisiveCashOffer(offer: MarketOffer): boolean {
-  if (!offer.eligible || !offer.bundleComplete) return false;
-  if (offer.condition !== 'new' && offer.condition !== 'unknown') return false;
+function shippingForAmount(offer: MarketOffer, amount: number): number | undefined {
+  if (offer.shipping) return resolveShippingCost(offer.shipping, amount);
+  return offer.shippingFee;
+}
+
+function mandatoryFeeTotal(offer: MarketOffer): number | undefined {
+  const fees = [
+    ...(offer.mandatoryFees ?? []),
+    ...(offer.installationFee !== undefined ? [offer.installationFee] : []),
+  ];
+  if (fees.some((fee) => !Number.isFinite(fee) || fee < 0)) return undefined;
+  return fees.reduce((sum, fee) => sum + fee, 0);
+}
+
+function commonDecisionGate(offer: MarketOffer, alternative = false): boolean {
+  if (!offer.bundleComplete) return false;
   if (!strongVerification(offer.verification)) return false;
-  if (offer.shippingFee === undefined || offer.totalCashPrice === undefined) return false;
   if (unavailable(offer.availability)) return false;
-  if (offer.identityVerdict !== undefined && offer.identityVerdict !== 'exact') return false;
   if (offer.constraintStatus !== undefined && offer.constraintStatus !== 'eligible') return false;
-  return fieldVerificationSupportsDecision(offer);
+  if (!fieldVerificationSupportsDecision(offer)) return false;
+  if (alternative) {
+    if (offer.condition === 'new' || offer.condition === 'unknown') return false;
+    return offer.identityVerdict === undefined || offer.identityVerdict === 'same_except_condition';
+  }
+  if (!offer.eligible) return false;
+  if (offer.condition !== 'new' && offer.condition !== 'unknown') return false;
+  return offer.identityVerdict === undefined || offer.identityVerdict === 'exact';
+}
+
+function baseCashAmount(offer: MarketOffer): number | undefined {
+  if (!commonDecisionGate(offer)) return undefined;
+  if (offer.promotion && offer.promotion.type !== 'none' && !isCurrentPublicPromotion(offer.promotion)) return undefined;
+  const salePrice = offer.salePrice;
+  if (salePrice !== undefined) {
+    const shipping = shippingForAmount(offer, salePrice);
+    const mandatoryFees = mandatoryFeeTotal(offer);
+    if (shipping === undefined || mandatoryFees === undefined) return undefined;
+    const calculated = salePrice + shipping + mandatoryFees;
+    if (offer.shipping || offer.mandatoryFees || offer.installationFee !== undefined) return calculated;
+  }
+  if (offer.shippingFee === undefined || offer.totalCashPrice === undefined) return undefined;
+  return offer.totalCashPrice;
+}
+
+export function isDecisiveCashOffer(offer: MarketOffer): boolean {
+  return baseCashAmount(offer) !== undefined;
+}
+
+export function isDecisivePublicConditionalOffer(offer: MarketOffer): boolean {
+  if (!commonDecisionGate(offer)) return false;
+  const promotion = offer.promotion;
+  if (!promotion || promotion.type === 'none' || promotion.type === 'time_deal') return false;
+  if (!isCurrentPublicPromotion(promotion) || promotion.accountRequired === true) return false;
+  const amount = offer.couponPrice ?? offer.paymentPrice ?? offer.cardPrice;
+  if (amount === undefined || !Number.isFinite(amount) || amount <= 0) return false;
+  const shipping = shippingForAmount(offer, amount);
+  return shipping !== undefined && mandatoryFeeTotal(offer) !== undefined;
 }
 
 export function isAlternativeConditionOffer(offer: MarketOffer): boolean {
-  if (offer.condition === 'new' || offer.condition === 'unknown') return false;
-  if (!offer.bundleComplete) return false;
-  if (!strongVerification(offer.verification)) return false;
-  if (offer.shippingFee === undefined || offer.totalCashPrice === undefined) return false;
-  if (unavailable(offer.availability)) return false;
-  if (offer.identityVerdict !== undefined && offer.identityVerdict !== 'same_except_condition') return false;
-  if (offer.constraintStatus !== undefined && offer.constraintStatus !== 'eligible') return false;
-  return fieldVerificationSupportsDecision(offer);
+  if (!commonDecisionGate(offer, true)) return false;
+  if (offer.shippingFee === undefined && !offer.shipping) return false;
+  if (offer.totalCashPrice === undefined && offer.salePrice === undefined) return false;
+  const amount = offer.salePrice ?? offer.totalCashPrice;
+  if (amount === undefined) return false;
+  return shippingForAmount(offer, amount) !== undefined && mandatoryFeeTotal(offer) !== undefined;
+}
+
+function conditionalAmount(offer: MarketOffer): number | undefined {
+  if (!isDecisivePublicConditionalOffer(offer)) return undefined;
+  const base = offer.couponPrice ?? offer.paymentPrice ?? offer.cardPrice;
+  if (base === undefined) return undefined;
+  const shipping = shippingForAmount(offer, base);
+  const mandatoryFees = mandatoryFeeTotal(offer);
+  return shipping === undefined || mandatoryFees === undefined ? undefined : base + shipping + mandatoryFees;
 }
 
 function priceForBasis(offer: MarketOffer, basis: OfferPriceBasis, context: PurchaseContext): number | undefined {
   if (basis === 'alternative_condition') {
-    return isAlternativeConditionOffer(offer) ? offer.totalCashPrice : undefined;
+    if (!isAlternativeConditionOffer(offer)) return undefined;
+    if (offer.salePrice !== undefined) {
+      const shipping = shippingForAmount(offer, offer.salePrice);
+      const mandatoryFees = mandatoryFeeTotal(offer);
+      if (shipping !== undefined && mandatoryFees !== undefined) return offer.salePrice + shipping + mandatoryFees;
+    }
+    return offer.totalCashPrice;
   }
-  if (!isDecisiveCashOffer(offer)) return undefined;
-  if (basis === 'cash') return offer.totalCashPrice;
+  if (basis === 'public_conditional') return conditionalAmount(offer);
+  const cash = baseCashAmount(offer);
+  if (cash === undefined) return undefined;
+  if (basis === 'cash') return cash;
+  const shipping = shippingForAmount(offer, offer.salePrice ?? cash);
+  const mandatoryFees = mandatoryFeeTotal(offer);
+  if (shipping === undefined || mandatoryFees === undefined) return undefined;
   if (basis === 'owned_card') return ownedCard(offer.cardName, context) && offer.cardPrice !== undefined
-    ? offer.cardPrice + (offer.shippingFee ?? 0)
+    ? offer.cardPrice + shipping + mandatoryFees
     : undefined;
   if (basis === 'conditional_payment') {
     const conditional = offer.paymentPrice ?? offer.cardPrice;
-    return conditional !== undefined ? conditional + (offer.shippingFee ?? 0) : undefined;
+    return conditional !== undefined ? conditional + shipping + mandatoryFees : undefined;
   }
   return offer.effectivePrice;
 }
@@ -182,13 +250,14 @@ function ranked(offers: MarketOffer[], basis: OfferPriceBasis, context: Purchase
   return offers.flatMap((offer) => {
     const amount = priceForBasis(offer, basis, context);
     if (amount === undefined || !Number.isFinite(amount) || amount <= 0) return [];
-    const paymentLabel = offer.paymentMethod ?? offer.cardName ?? '조건부 결제';
+    const paymentLabel = offer.paymentMethod ?? offer.cardName ?? offer.promotion?.condition ?? '조건부 결제';
     return [{ basis, rank: 0, amount, offer, reasons: [
       basis === 'cash' ? '배송비를 포함한 현금 결제 기준' :
         basis === 'owned_card' ? `${offer.cardName ?? '보유 카드'} 조건 기준` :
           basis === 'conditional_payment' ? `${paymentLabel} 조건부 결제 기준` :
-            basis === 'effective' ? '현금 결제액에서 표시된 적립을 차감한 참고 체감가' :
-              `${offer.condition} 상태의 별도 대안`,
+            basis === 'public_conditional' ? `${offer.promotion?.condition ?? paymentLabel} 공개 조건 기준` :
+              basis === 'effective' ? '현금 결제액에서 표시된 적립을 차감한 참고 체감가' :
+                `${offer.condition} 상태의 별도 대안`,
       `${offer.verification} 검증 수준`,
     ] }];
   }).sort((a, b) => a.amount - b.amount || b.offer.identityScore - a.offer.identityScore)
@@ -281,13 +350,15 @@ export function rankMarketOffers(offers: MarketOffer[], context: PurchaseContext
   const cash = ranked(offers, 'cash', context);
   const ownedCard = ranked(offers, 'owned_card', context);
   const conditionalPayment = ranked(offers, 'conditional_payment', context);
+  const publicConditional = ranked(offers, 'public_conditional', context);
   const effective = ranked(offers, 'effective', context);
   const alternative = ranked(offers, 'alternative_condition', context);
   const bestOffers: BestOffers = {};
   if (cash[0]) bestOffers.cash = cash[0];
   if (ownedCard[0]) bestOffers.ownedCard = ownedCard[0];
   if (conditionalPayment[0]) bestOffers.conditionalPayment = conditionalPayment[0];
+  if (publicConditional[0]) bestOffers.publicConditional = publicConditional[0];
   if (effective[0]) bestOffers.effective = effective[0];
   if (alternative[0]) bestOffers.alternativeCondition = alternative[0];
-  return { bestOffers, rankings: [...cash, ...ownedCard, ...conditionalPayment, ...effective, ...alternative] };
+  return { bestOffers, rankings: [...cash, ...ownedCard, ...conditionalPayment, ...publicConditional, ...effective, ...alternative] };
 }

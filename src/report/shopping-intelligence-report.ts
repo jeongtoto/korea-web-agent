@@ -6,7 +6,6 @@ function snapshotCash(report: ProductReport): number | undefined {
   const snapshot = report.personalizedPrice ?? report.price;
   return snapshot?.cashPaymentPrice
     ?? report.bestOffers?.cash?.amount
-    ?? snapshot?.couponPrice
     ?? snapshot?.salePrice;
 }
 

@@ -4,6 +4,7 @@ import {
   buildMarketOffer,
   isAlternativeConditionOffer,
   isDecisiveCashOffer,
+  isDecisivePublicConditionalOffer,
   rankMarketOffers,
 } from '../src/core/offer-engine.ts';
 import type { MarketOffer, NormalizedTarget, PurchaseContext } from '../src/core/types.ts';
@@ -176,4 +177,51 @@ test('search-metadata return/refurb offer cannot enter alternativeCondition', ()
 
   assert.equal(isAlternativeConditionOffer(returnOffer), false);
   assert.equal(rankMarketOffers([returnOffer]).bestOffers.alternativeCondition, undefined);
+});
+
+test('active unconditional public time deal may compete in cash', () => {
+  const deal = reliableOffer({
+    salePrice: 379000,
+    totalCashPrice: 379000,
+    promotion: {
+      type: 'time_deal',
+      startsAt: '2026-08-23T00:00:00.000Z',
+      endsAt: '2026-08-27T00:00:00.000Z',
+      active: true,
+    },
+  });
+
+  assert.equal(isDecisiveCashOffer(deal), true);
+  assert.equal(rankMarketOffers([deal]).bestOffers.cash?.amount, 379000);
+});
+
+test('public coupon condition ranks separately from unconditional cash', () => {
+  const offer = reliableOffer({
+    salePrice: 399000,
+    totalCashPrice: 399000,
+    couponPrice: 379000,
+    promotion: {
+      type: 'public_coupon',
+      active: true,
+      condition: '공개 쿠폰 적용',
+    },
+  });
+
+  assert.equal(isDecisiveCashOffer(offer), true);
+  assert.equal(isDecisivePublicConditionalOffer(offer), true);
+  const result = rankMarketOffers([offer]);
+  assert.equal(result.bestOffers.cash?.amount, 399000);
+  assert.equal(result.bestOffers.publicConditional?.amount, 379000);
+});
+
+test('expired, future, unknown-validity or account-required promotional price is never decisive', () => {
+  const base = reliableOffer({ salePrice: 399000, couponPrice: 359000 });
+  const traps: MarketOffer[] = [
+    { ...base, id: 'expired', promotion: { type: 'public_coupon', active: false, condition: '쿠폰' } },
+    { ...base, id: 'unknown', promotion: { type: 'public_coupon', active: 'unknown', condition: '쿠폰' } },
+    { ...base, id: 'account', promotion: { type: 'public_coupon', active: true, condition: '회원 전용', accountRequired: true } },
+  ];
+
+  assert.ok(traps.every((offer) => isDecisivePublicConditionalOffer(offer) === false));
+  assert.ok(traps.every((offer) => rankMarketOffers([offer]).bestOffers.publicConditional === undefined));
 });

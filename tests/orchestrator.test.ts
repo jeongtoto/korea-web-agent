@@ -253,7 +253,7 @@ test('search-metadata-only multi-market prices remain visible but cannot win dec
   assert.equal(job.report?.bestOffers?.alternativeCondition, undefined);
 });
 
-test('page-verified exact retailer offer can win the decisive cash ranking', async () => {
+test('page-verified exact supporting retailer offer can win cash without entering required provider coverage', async () => {
   const target = {
     kind: 'product' as const,
     brand: '와이드뷰',
@@ -290,5 +290,7 @@ test('page-verified exact retailer offer can win the decisive cash ranking', asy
 
   assert.equal(job.report?.bestOffers?.cash?.amount, 407200);
   assert.equal(job.report?.bestOffers?.cash?.offer.verification, 'page_verified');
-  assert.ok(job.report?.marketCoverage?.some((coverage) => coverage.market === 'KREAM' && coverage.status === 'verified'));
+  assert.equal(job.report?.bestOffers?.cash?.offer.market, 'KREAM');
+  assert.equal(job.report?.marketCoverage?.some((coverage) => coverage.market === 'KREAM'), false);
+  assert.equal(job.report?.marketCoverage?.length, 13);
 });

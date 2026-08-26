@@ -1,4 +1,4 @@
-import type { ProductReport, PurchaseContext, ResearchRequest } from './types.ts';
+import type { MarketOffer, ProductReport, PurchaseContext, ResearchRequest } from './types.ts';
 
 export type ReliabilityIssueSeverity = 'blocker' | 'warning';
 
@@ -62,6 +62,42 @@ function normalizedArray(value: string[] | undefined): string[] {
   return (value ?? []).map((item) => item.trim()).filter(Boolean);
 }
 
+function isStrongPageVerification(value: MarketOffer['verification'] | undefined): boolean {
+  return value === 'page_verified' || value === 'checkout_verified';
+}
+
+function hasResolvedShipping(offer: MarketOffer): boolean {
+  if (offer.shipping) {
+    if (!isStrongPageVerification(offer.shipping.verification)) return false;
+    if (offer.shipping.remoteAreaExtraUnknown) return false;
+    if (offer.shipping.status === 'free') return true;
+    if (offer.shipping.status === 'unknown') return false;
+    if (offer.shipping.status === 'paid') {
+      return typeof offer.shipping.baseFee === 'number'
+        && Number.isFinite(offer.shipping.baseFee)
+        && offer.shipping.baseFee >= 0;
+    }
+    if (
+      typeof offer.shipping.threshold !== 'number'
+      || !Number.isFinite(offer.shipping.threshold)
+      || offer.shipping.threshold < 0
+    ) return false;
+    const orderAmount = offer.salePrice ?? offer.totalCashPrice;
+    if (typeof orderAmount !== 'number' || !Number.isFinite(orderAmount) || orderAmount < 0) return false;
+    if (orderAmount >= offer.shipping.threshold) return true;
+    return typeof offer.shipping.baseFee === 'number'
+      && Number.isFinite(offer.shipping.baseFee)
+      && offer.shipping.baseFee >= 0;
+  }
+  return typeof offer.shippingFee === 'number'
+    && Number.isFinite(offer.shippingFee)
+    && offer.shippingFee >= 0;
+}
+
+function isUnavailable(value: string): boolean {
+  return /(out\s*of\s*stock|sold\s*out|unavailable|품절|판매\s*종료|일시\s*품절)/i.test(value);
+}
+
 export function normalizePurchaseContextApplied(context: PurchaseContext): PurchaseContextApplied {
   return {
     ownedCards: normalizedArray(context.ownedCards),
@@ -86,6 +122,7 @@ export function validateProductReport(
     report.bestOffers?.cash,
     report.bestOffers?.ownedCard,
     report.bestOffers?.conditionalPayment,
+    report.bestOffers?.publicConditional,
     report.bestOffers?.effective,
   ].filter((winner): winner is NonNullable<typeof winner> => Boolean(winner));
 
@@ -109,16 +146,61 @@ export function validateProductReport(
         `Decisive ${winner.basis} winner fails a hard constraint.`,
       ));
     }
-    if (offer.verification === 'search_metadata' || offer.verification === 'unverified') {
+    if (!isStrongPageVerification(offer.verification)) {
       issues.push(issue(
         'SEARCH_METADATA_AS_DECISIVE',
         `Decisive ${winner.basis} winner is not verified on a product or checkout page.`,
       ));
     }
-    if (offer.shippingFee === undefined) {
+    if (!hasResolvedShipping(offer)) {
       issues.push(issue(
         'UNKNOWN_SHIPPING_IN_WINNER',
-        `Decisive ${winner.basis} winner has unknown shipping cost.`,
+        `Decisive ${winner.basis} winner has unresolved shipping cost.`,
+      ));
+    }
+  }
+
+  const publicConditional = report.bestOffers?.publicConditional;
+  if (publicConditional) {
+    const offer = publicConditional.offer;
+    const fields = offer.fieldVerification;
+    if (
+      !fields
+      || !isStrongPageVerification(fields.identity)
+      || !isStrongPageVerification(fields.price)
+    ) {
+      issues.push(issue(
+        'SEARCH_METADATA_AS_DECISIVE',
+        'Public-conditional winner requires page-verified identity and price fields.',
+      ));
+    }
+    if (!fields || !isStrongPageVerification(fields.shipping)) {
+      issues.push(issue(
+        'UNKNOWN_SHIPPING_IN_WINNER',
+        'Public-conditional winner requires page-verified shipping.',
+      ));
+    }
+    if (!offer.availability) {
+      issues.push(issue(
+        'HARD_CONSTRAINT_UNKNOWN_IN_WINNER',
+        'Public-conditional winner does not have a verified purchasable availability state.',
+      ));
+    } else if (isUnavailable(offer.availability)) {
+      issues.push(issue(
+        'HARD_CONSTRAINT_FAILED_IN_WINNER',
+        'Public-conditional winner is not currently purchasable.',
+      ));
+    }
+    const promotion = offer.promotion;
+    if (
+      !promotion
+      || promotion.type === 'none'
+      || promotion.active !== true
+      || promotion.accountRequired === true
+    ) {
+      issues.push(issue(
+        'EXPIRED_PROMOTION',
+        'Public-conditional winner must use a current public non-account-specific promotion.',
       ));
     }
   }
