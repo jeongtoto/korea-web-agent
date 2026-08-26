@@ -1,6 +1,7 @@
 import type { EvidenceClass } from '../core/types.ts';
 import type { SearchHit } from '../providers/index.ts';
 import { analyzeReviewClaim, type ReviewEvidence } from './review-intelligence.ts';
+import { reviewClaimFingerprint, scoreReviewTrust } from './review-trust.ts';
 import type { ShoppingCandidate, ShoppingResearchPlan } from './types.ts';
 
 export interface DeepResearchDependencies {
@@ -18,6 +19,10 @@ export interface DeepResearchResult {
 interface DeepQuery {
   id: 'reviews' | 'negatives' | 'durability' | 'service';
   query: string;
+}
+
+function compactIdentity(value: string | undefined): string {
+  return (value ?? '').normalize('NFKC').toUpperCase().replace(/[^A-Z0-9가-힣]/g, '');
 }
 
 function identity(candidate: ShoppingCandidate): string {
@@ -42,11 +47,11 @@ function sourceClass(hit: SearchHit, claim: string): EvidenceClass {
   try {
     const host = new URL(hit.url).hostname.toLowerCase();
     if (/(협찬|광고|sponsored|제공받)/i.test(claim)) return 'sponsored_content';
-    if (host.includes('coupang.com') || host.includes('shopping.naver.com') || host.includes('smartstore.naver.com')) {
-      return 'verified_purchase_review';
-    }
     if (host.includes('youtube.com') || host.includes('youtu.be')) return 'editorial_review';
     if (host.includes('blog.naver.com') || host.includes('cafe.naver.com') || host.includes('reddit.com')) return 'community_report';
+    if (host.includes('coupang.com') || host.includes('shopping.naver.com') || host.includes('smartstore.naver.com')) {
+      return 'retailer_listing';
+    }
     return 'community_report';
   } catch {
     return 'community_report';
@@ -61,6 +66,32 @@ function independenceKey(hit: SearchHit): string {
   } catch {
     return hit.url;
   }
+}
+
+function versionTokens(value: string): Set<string> {
+  return new Set((value.toUpperCase().match(/\bV\d+(?:-[A-Z]+)?\b/g) ?? []).map((token) => token.replace(/\s+/g, '')));
+}
+
+function reviewIdentityRelevance(candidate: ShoppingCandidate, claim: string): number {
+  const claimCompact = compactIdentity(claim);
+  const candidateText = `${candidate.model ?? ''} ${candidate.bundle.join(' ')} ${candidate.title}`;
+  const candidateVersions = versionTokens(candidateText);
+  const claimVersions = versionTokens(claim);
+  if (candidateVersions.size && claimVersions.size && ![...candidateVersions].some((token) => claimVersions.has(token))) return 0;
+
+  const model = compactIdentity(candidate.model);
+  if (model && claimCompact.includes(model)) {
+    const bundleTokens = candidate.bundle.map(compactIdentity).filter(Boolean);
+    if (bundleTokens.length && bundleTokens.every((token) => claimCompact.includes(token))) return 1;
+    return 0.8;
+  }
+
+  const family = compactIdentity(candidate.family);
+  if (family && claimCompact.includes(family)) return 0.5;
+
+  const brand = compactIdentity(candidate.brand);
+  if (brand && claimCompact.includes(brand)) return 0.25;
+  return 0.2;
 }
 
 export async function deepResearchCandidates(
@@ -84,16 +115,25 @@ export async function deepResearchCandidates(
         const urls = sourceUrlsByCandidate[candidate.key] ?? [];
         if (!urls.includes(hit.url)) urls.push(hit.url);
         sourceUrlsByCandidate[candidate.key] = urls;
-        reviewEvidence.push(...analyzeReviewClaim({
+        const now = deps.now();
+        const baseEvidence = analyzeReviewClaim({
           candidateKey: candidate.key,
           claim,
           sourceClass: sourceClass(hit, claim),
           sourceUrl: hit.url,
-          retrievedAt: deps.now().toISOString(),
+          retrievedAt: now.toISOString(),
           independenceKey: independenceKey(hit),
+          acquisitionMethod: 'search_metadata',
+          identityRelevance: reviewIdentityRelevance(candidate, claim),
+          verifiedPurchaseConfidence: 0,
+          claimFingerprint: reviewClaimFingerprint(claim),
           sponsored: /(협찬|광고|sponsored|제공받)/i.test(claim),
           confidence: query.id === 'negatives' || query.id === 'durability' ? 0.7 : 0.66,
-        }));
+        });
+        for (const item of baseEvidence) {
+          const trust = scoreReviewTrust(item, now);
+          reviewEvidence.push({ ...item, effectiveWeight: trust.effectiveWeight });
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
