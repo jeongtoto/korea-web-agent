@@ -1,5 +1,6 @@
 name: v0.7.1 metadata sync
 
+# Temporary branch-only helper. It uses npm itself to author package-lock metadata and is deleted before merge.
 on:
   push:
     branches: [feature/v0.7.1-live-verification-hardening]
