@@ -1,5 +1,6 @@
 import { assertPublicUrl } from '../core/policy.ts';
 import type { EvidenceItem, PromotionState, SellerInfo } from '../core/types.ts';
+import { extractComparisonSellerLinks, isComparisonPortalHost } from './comparison-links.ts';
 import {
   matchingMarketExtractor,
   type ExtractedSellerLink,
@@ -72,6 +73,50 @@ function stripTags(input: string): string {
   return decodeEntities(input.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim());
 }
 
+function visiblePageText(html: string): string {
+  return stripTags(html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<(?:noscript|template|svg)\b[^>]*>[\s\S]*?<\/(?:noscript|template|svg)>/gi, ' '));
+}
+
+function numericPrice(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value.replace(/,/g, '').replace(/[^0-9.-]/g, '').trim());
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function deterministicShippingFeeFromHtml(html: string): number | undefined {
+  const text = visiblePageText(html);
+  if (!/배송|delivery|shipping/i.test(text)) return undefined;
+  const disqualifier = /(조건부|지역별|지역에\s*따라|도서\s*산간|도서산간|제주|착불|별도|추가|설치\s*(?:비|배송)|차등)/i;
+  const values = new Set<number>();
+
+  const labeled = /(?:배송비|배송료)\s*[:：]?\s*(무료\s*배송|무료|0\s*원|\d{1,3}(?:,\d{3})+\s*원|\d{3,}\s*원)/gi;
+  for (const match of text.matchAll(labeled)) {
+    const index = match.index ?? 0;
+    const context = text.slice(Math.max(0, index - 80), Math.min(text.length, index + match[0].length + 100));
+    if (disqualifier.test(context)) continue;
+    const raw = match[1] ?? '';
+    if (/무료/i.test(raw) || /^0\s*원$/i.test(raw.trim())) values.add(0);
+    else {
+      const value = numericPrice(raw);
+      if (value !== undefined && value >= 0) values.add(value);
+    }
+  }
+
+  for (const match of text.matchAll(/무료\s*배송/gi)) {
+    const index = match.index ?? 0;
+    const context = text.slice(Math.max(0, index - 80), Math.min(text.length, index + match[0].length + 100));
+    if (!disqualifier.test(context)) values.add(0);
+  }
+
+  return values.size === 1 ? [...values][0] : undefined;
+}
+
 function metaContent(html: string, attr: 'name' | 'property', key: string): string | undefined {
   const patterns = [
     new RegExp(`<meta\\s+[^>]*${attr}=["']${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*content=["']([^"']*)["'][^>]*>`, 'i'),
@@ -122,15 +167,6 @@ function typeIncludesProduct(value: unknown): boolean {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-}
-
-function numericPrice(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') {
-    const parsed = Number(value.replace(/,/g, '').replace(/[^0-9.-]/g, '').trim());
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return undefined;
 }
 
 function shippingFeeFromOffer(offer: Record<string, unknown>): number | undefined {
@@ -315,7 +351,11 @@ export async function fetchDirectPage(
   const siteName = metaContent(html, 'property', 'og:site_name');
   const genericProduct = parseProduct(html);
   const product = mergeProduct(genericProduct, extraction?.product);
-  const facts = mergeFacts(productFacts(product), extraction?.facts);
+  const staticShippingFee = product?.offers?.shippingFee === undefined ? deterministicShippingFeeFromHtml(html) : undefined;
+  const staticFacts: DirectProductFacts | undefined = staticShippingFee !== undefined ? { shippingFee: staticShippingFee } : undefined;
+  const facts = mergeFacts(mergeFacts(productFacts(product), staticFacts), extraction?.facts);
+  const fallbackSellerLinks = isComparisonPortalHost(url) ? extractComparisonSellerLinks(html, url) : [];
+  const sellerLinks = extraction?.sellerLinks?.length ? extraction.sellerLinks : fallbackSellerLinks;
   const evidence: EvidenceItem[] = [];
 
   if (title || description) {
@@ -339,7 +379,7 @@ export async function fetchDirectPage(
       product.sku ? `SKU: ${product.sku}` : undefined,
       product.model ? `모델: ${product.model}` : undefined,
       product.offers?.price !== undefined ? `가격: ${product.offers.price}${product.offers.currency ? ` ${product.offers.currency}` : ''}` : undefined,
-      product.offers?.shippingFee !== undefined ? `배송비: ${product.offers.shippingFee}` : undefined,
+      facts?.shippingFee !== undefined ? `배송비: ${facts.shippingFee}` : undefined,
     ].filter(Boolean);
     evidence.push({
       claim: structuredBits.join(' / '),
@@ -361,7 +401,7 @@ export async function fetchDirectPage(
   if (siteName) result.siteName = siteName;
   if (product) result.product = product;
   if (facts) result.facts = facts;
-  if (extraction?.sellerLinks?.length) result.sellerLinks = extraction.sellerLinks.map((item) => ({ ...item }));
+  if (sellerLinks.length) result.sellerLinks = sellerLinks.map((item) => ({ ...item }));
   if (extraction?.promotion) result.promotion = { ...extraction.promotion };
   if (extraction?.sellerInfo) result.sellerInfo = { ...extraction.sellerInfo };
   return result;
