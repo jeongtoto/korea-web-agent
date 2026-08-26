@@ -31,6 +31,8 @@ import type {
 import { resolveProduct } from '../orchestrator/product-resolver.ts';
 import type { SearchHit } from '../providers/index.ts';
 import { buildShoppingPresentation, type ShoppingPresentation } from '../report/shopping-presentation.ts';
+import { planShoppingResearch } from '../shopping/query-planner.ts';
+import type { ShoppingResearchResult } from '../shopping/shopping-orchestrator.ts';
 
 export interface AgentResearchInput {
   query: string;
@@ -41,6 +43,7 @@ export interface AgentResearchInput {
 export interface AgentResearchDependencies {
   publicSearch: (query: string) => Promise<SearchHit[]>;
   cloudResearch: (request: ResearchRequest, context: ResearchContext) => Promise<ResearchJob>;
+  shoppingResearch?: (query: string, purchaseContext?: PurchaseContext) => Promise<ShoppingResearchResult>;
 }
 
 export interface AgentEvidenceSummary {
@@ -96,6 +99,7 @@ export interface AgentResearchResult {
   standardPriceRows?: StandardPriceRowReport[];
   presentation?: ShoppingPresentation;
   validationWarnings?: ReliabilityIssue[];
+  shopping?: ShoppingResearchResult;
   relay: AgentRelaySummary;
   summary: string;
   reasons: string[];
@@ -249,6 +253,60 @@ export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {
   return result;
 }
 
+function shapeAgentShoppingResult(
+  input: AgentResearchInput,
+  intent: ResearchIntent,
+  shopping: ShoppingResearchResult,
+): AgentResearchResult {
+  const top = shopping.assessments[0];
+  const evidenceUrls = [...new Set(shopping.assessments.flatMap((item) => item.evidenceUrls))];
+  const hasRecommendations = shopping.assessments.length > 0;
+  const result: AgentResearchResult = {
+    status: shopping.partial ? 'partial' : 'completed',
+    query: input.query,
+    intent,
+    product: {
+      kind: 'product',
+      identityConfidence: top?.confidenceDimensions.identity ?? 0,
+      ambiguous: false,
+      candidates: [],
+    },
+    decision: hasRecommendations ? 'BUY' : 'INSUFFICIENT',
+    confidence: top?.evidenceConfidence ?? 0,
+    shopping,
+    relay: {
+      requested: false,
+      available: false,
+      used: false,
+      mode: 'public_only',
+      message: 'Public Shopping Intelligence completed without authenticated personalization.',
+    },
+    summary: hasRecommendations
+      ? `시장 후보 ${shopping.progress.normalizedCandidates}개를 정규화하고 상위 ${shopping.assessments.length}개를 비교했습니다.`
+      : '정밀 쇼핑 조사를 완료했지만 최종 추천 근거가 충분하지 않습니다.',
+    reasons: top?.strengths ?? [],
+    strengths: top?.strengths ?? [],
+    weaknesses: top?.negativeSignals ?? [],
+    missingInformation: top?.tradeoffs ?? ['조건을 만족하는 검증된 추천 후보가 부족합니다.'],
+    evidence: evidenceUrls.slice(0, 20).map((sourceUrl) => ({
+      claim: 'Shopping Intelligence recommendation evidence',
+      sourceUrl,
+      evidenceClass: 'inferred_analysis',
+      confidence: top?.evidenceConfidence ?? 0,
+      specificity: 'exact_product',
+    })),
+    sourceCoverage: {
+      attempted: shopping.progress.rawHits,
+      succeeded: Math.max(0, shopping.progress.rawHits - shopping.errors.length),
+      failed: shopping.errors.length,
+      evidenceCount: evidenceUrls.length,
+    },
+    errors: [...shopping.errors],
+  };
+  if (input.purchaseContext) result.purchaseContextApplied = input.purchaseContext;
+  return result;
+}
+
 function isCategoryRecommendation(question: string): boolean {
   const text = question.toLowerCase().replace(/\s+/g, ' ');
   return /(추천|베스트|best|골라|뭐로\s*살|무엇을\s*살|어떤\s*(제품|이불|침구|가구|가전))/.test(text);
@@ -347,6 +405,12 @@ export async function runAgentResearch(
 ): Promise<AgentResearchResult> {
   const input = validateAgentResearchInput(rawInput);
   const intent = classifyResearchIntent(input.query);
+  const shoppingPlan = planShoppingResearch(input.query);
+  if (!input.url && shoppingPlan.mode === 'RECOMMENDATION' && deps.shoppingResearch) {
+    const shopping = await deps.shoppingResearch(input.query, input.purchaseContext);
+    return shapeAgentShoppingResult(input, intent, shopping);
+  }
+
   const resolutionRequest: ResearchRequest = { question: input.query, category: 'product' };
   if (input.url) resolutionRequest.url = input.url;
   const resolution = await resolveProduct(resolutionRequest, { publicSearch: deps.publicSearch });
