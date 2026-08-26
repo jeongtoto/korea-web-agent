@@ -150,7 +150,7 @@ test('BEDDING-001: non-queen and winter-only decoys cannot win over verified que
   assert.ok(result.assessments[0]!.candidate.model !== 'BEDQ02', 'sponsored-only cheapest option must not automatically win');
 });
 
-test('Relay isolation: personalization availability changes confidence only, never public recommendation order or score', () => {
+test('Relay isolation: availability alone never changes public ranking or fabricates personalization confidence', () => {
   const plan = planShoppingResearch('43인치 4K 이동식 TV 가성비 추천');
   const candidates: ShoppingCandidate[] = ['TVA100', 'TVB200'].map((model, index) => ({
     key: model,
@@ -191,5 +191,5 @@ test('Relay isolation: personalization availability changes confidence only, nev
   assert.deepEqual(online.map((item) => item.candidate.key), offline.map((item) => item.candidate.key));
   assert.deepEqual(online.map((item) => item.recommendationScore), offline.map((item) => item.recommendationScore));
   assert.ok(offline.every((item) => item.confidenceDimensions.personalization === 0));
-  assert.ok(online.every((item) => item.confidenceDimensions.personalization === 1));
+  assert.ok(online.every((item) => item.confidenceDimensions.personalization === 0));
 });
