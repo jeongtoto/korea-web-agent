@@ -1,0 +1,49 @@
+name: README history fix
+
+on:
+  push:
+    branches: [feature/v0.7.2-evidence-aware-recommendation]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v0.7.2-evidence-aware-recommendation
+          fetch-depth: 0
+      - name: Restore historical v0.7.1 README labels
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('README.md')
+          text = path.read_text(encoding='utf-8')
+          replacements = {
+              '## v0.7.2 Live Verification Hardening': '## v0.7.1 Live Verification Hardening',
+              '## v0.7.2 Provider v2 coverage': '## v0.7.1 Provider v2 coverage',
+              'outside the 13 required Provider v2 execution set in v0.7.2.': 'outside the 13 required Provider v2 execution set in v0.7.1.',
+              'deterministic WideView v0.7.2 end-to-end acceptance.': 'deterministic WideView v0.7.1 end-to-end acceptance.',
+          }
+          for old, new in replacements.items():
+              assert old in text, old
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+          git diff --check
+          git diff -- README.md
+      - name: Commit README correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md
+          git commit -m 'docs: preserve v0.7.1 release history'
+          git push origin HEAD:feature/v0.7.2-evidence-aware-recommendation
