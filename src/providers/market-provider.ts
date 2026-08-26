@@ -9,6 +9,7 @@ import type {
 } from '../core/types.ts';
 import type { DirectPageResult } from './direct-page.ts';
 import type { SearchHit } from './index.ts';
+import type { SellerRedirectResult } from './seller-redirect.ts';
 
 export type MarketProviderId =
   | 'naver-shopping'
@@ -77,6 +78,7 @@ export interface MarketProviderContext {
   constraints: ProductConstraint[];
   publicSearch: (query: string) => Promise<SearchHit[]>;
   directPage: (url: string) => Promise<DirectPageResult>;
+  resolveSellerRedirect?: (url: string) => Promise<SellerRedirectResult>;
   now: () => Date;
 }
 
