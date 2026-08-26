@@ -5,7 +5,13 @@ import {
   type ReviewConsensus,
   type ReviewEvidence,
 } from './review-intelligence.ts';
-import type { FactValue, ShoppingCandidate, ShoppingResearchPlan } from './types.ts';
+import type {
+  RecommendationRationale,
+  RecommendationTier,
+  ShoppingCandidate,
+  ShoppingResearchPlan,
+} from './types.ts';
+import { assessValue, type PriceStatus } from './value-model.ts';
 
 export interface ShoppingConfidenceDimensions {
   identity: number;
@@ -25,6 +31,8 @@ export interface CandidateAssessment {
   recommendationScore: number;
   evidenceConfidence: number;
   confidenceDimensions: ShoppingConfidenceDimensions;
+  recommendationTier: RecommendationTier;
+  rationale: RecommendationRationale;
   strengths: string[];
   tradeoffs: string[];
   negativeSignals: string[];
@@ -40,9 +48,18 @@ export interface RankShoppingInput {
   personalizationAvailable?: boolean;
 }
 
+export interface RecommendationTierInput {
+  recommendationScore: number;
+  evidenceConfidence: number;
+  priceStatus: PriceStatus;
+  valueLed: boolean;
+  materialRepeatedNegative: boolean;
+}
+
 interface CandidateEconomics {
   verifiedCashPrice?: number;
   indicativePrice?: number;
+  priceStatus: PriceStatus;
   priceConfidence: number;
   offerUrls: string[];
 }
@@ -67,15 +84,6 @@ function stringFact(candidate: ShoppingCandidate, field: string): string | undef
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-function factVerification(candidate: ShoppingCandidate, field: string): FactValue['verification'] | undefined {
-  return candidate.facts[field]?.verification;
-}
-
-function verifiedFact(candidate: ShoppingCandidate, field: string): boolean {
-  const verification = factVerification(candidate, field);
-  return verification === 'page_verified' || verification === 'official';
-}
-
 function reviewMap(reviews: ReviewEvidence[]): Map<string, ReviewConsensus> {
   return new Map(aggregateReviewConsensus(reviews).map((item) => [item.topic, item]));
 }
@@ -84,7 +92,7 @@ function reviewDirection(consensus: ReviewConsensus | undefined): number {
   if (!consensus) return 0;
   const total = consensus.positiveWeight + consensus.negativeWeight;
   if (total <= 0) return 0;
-  return clamp((consensus.positiveWeight / total)) * 2 - 1;
+  return clamp(consensus.positiveWeight / total) * 2 - 1;
 }
 
 function reviewQuality(consensus: ReviewConsensus | undefined, fallback = 0.5): number {
@@ -138,23 +146,28 @@ function economicsFor(candidate: ShoppingCandidate, offers: MarketOffer[]): Cand
     .filter((item): item is { offer: MarketOffer; amount: number } => item.amount !== undefined)
     .sort((a, b) => a.amount - b.amount)[0];
 
+  if (decisive?.totalCashPrice !== undefined) {
+    return {
+      verifiedCashPrice: decisive.totalCashPrice,
+      ...(indicative ? { indicativePrice: indicative.amount } : {}),
+      priceStatus: 'verified',
+      priceConfidence: 0.95,
+      offerUrls: [...new Set(matching.map((offer) => offer.url))],
+    };
+  }
+  if (indicative) {
+    return {
+      indicativePrice: indicative.amount,
+      priceStatus: 'indicative',
+      priceConfidence: 0.45,
+      offerUrls: [...new Set(matching.map((offer) => offer.url))],
+    };
+  }
   return {
-    ...(decisive?.totalCashPrice !== undefined ? { verifiedCashPrice: decisive.totalCashPrice } : {}),
-    ...(indicative ? { indicativePrice: indicative.amount } : {}),
-    priceConfidence: decisive ? 0.95 : indicative ? 0.35 : 0,
+    priceStatus: 'unknown',
+    priceConfidence: 0,
     offerUrls: [...new Set(matching.map((offer) => offer.url))],
   };
-}
-
-function normalizedPriceValue(price: number | undefined, cohort: number[]): number {
-  if (price === undefined || !cohort.length) return 0.55;
-  if (cohort.length === 1) return 0.72;
-  const min = Math.min(...cohort);
-  const max = Math.max(...cohort);
-  if (max <= min) return 0.72;
-  const relative = (price - min) / (max - min);
-  // Keep price important without allowing a modest price gap to erase material quality differences.
-  return clamp(0.95 - relative * 0.35);
 }
 
 function portableDisplayScores(
@@ -229,6 +242,13 @@ function weightedScore(weights: Record<string, number>, dimensions: Record<strin
   return weight > 0 ? clamp(weighted / weight) : 0;
 }
 
+function meritScore(weights: Record<string, number>, dimensions: Record<string, number>): number {
+  return weightedScore(
+    Object.fromEntries(Object.entries(weights).filter(([dimension]) => dimension !== 'value')),
+    dimensions,
+  );
+}
+
 function confidenceDimensions(
   candidate: ShoppingCandidate,
   candidateReviews: ReviewEvidence[],
@@ -264,7 +284,6 @@ function confidenceDimensions(
 }
 
 function overallEvidenceConfidence(dimensions: ShoppingConfidenceDimensions): number {
-  // Personalization is deliberately excluded: public recommendation confidence is cloud-first.
   return clamp(
     dimensions.identity * 0.18 +
     dimensions.hardConstraints * 0.18 +
@@ -277,6 +296,18 @@ function overallEvidenceConfidence(dimensions: ShoppingConfidenceDimensions): nu
   );
 }
 
+function productEvidenceConfidence(dimensions: ShoppingConfidenceDimensions): number {
+  const weighted =
+    dimensions.identity * 0.18 +
+    dimensions.hardConstraints * 0.18 +
+    dimensions.officialSpecs * 0.17 +
+    dimensions.reviewConsensus * 0.17 +
+    dimensions.negativeCoverage * 0.08 +
+    dimensions.durability * 0.07 +
+    dimensions.serviceWarranty * 0.07;
+  return clamp(weighted / 0.92);
+}
+
 function evidenceUrls(candidate: ShoppingCandidate, reviews: ReviewEvidence[], economics: CandidateEconomics): string[] {
   return [...new Set([
     ...candidate.sourceUrls,
@@ -284,6 +315,16 @@ function evidenceUrls(candidate: ShoppingCandidate, reviews: ReviewEvidence[], e
     ...reviews.map((review) => review.sourceUrl),
     ...economics.offerUrls,
   ].filter(Boolean))];
+}
+
+function materialNegativeTopics(reviews: Map<string, ReviewConsensus>): string[] {
+  return [...reviews.values()]
+    .filter((item) =>
+      item.negativeWeight > item.positiveWeight &&
+      item.independentSources >= 2 &&
+      item.confidence >= 0.7)
+    .sort((a, b) => b.confidence - a.confidence || a.topic.localeCompare(b.topic))
+    .map((item) => item.topic);
 }
 
 function explanation(
@@ -301,42 +342,137 @@ function explanation(
     .sort((a, b) => b.confidence - a.confidence)
     .map((item) => item.topic);
   const tradeoffs: string[] = [];
-  if (economics.verifiedCashPrice === undefined) tradeoffs.push('verified_cash_price_unavailable');
+  if (economics.priceStatus !== 'verified') tradeoffs.push('verified_cash_price_unavailable');
   if (!reviews.size) tradeoffs.push('independent_review_evidence_sparse');
   if (negativeSignals.length) tradeoffs.push(...negativeSignals.map((topic) => `negative:${topic}`));
   return { strengths, tradeoffs, negativeSignals };
 }
 
+function evidenceGaps(dimensions: ShoppingConfidenceDimensions, priceStatus: PriceStatus): string[] {
+  const gaps: string[] = [];
+  if (dimensions.officialSpecs < 0.55) gaps.push('official_specs_sparse');
+  if (dimensions.reviewConsensus < 0.55) gaps.push('independent_review_evidence_sparse');
+  if (dimensions.durability < 0.5) gaps.push('durability_evidence_sparse');
+  if (dimensions.serviceWarranty < 0.5) gaps.push('service_warranty_evidence_sparse');
+  if (priceStatus !== 'verified') gaps.push('verified_cash_price_unavailable');
+  return gaps;
+}
+
+function isValueLed(plan: ShoppingResearchPlan): boolean {
+  return plan.preferences.some((preference) => preference.dimension === 'value');
+}
+
+export function classifyRecommendationTier(input: RecommendationTierInput): RecommendationTier {
+  if (input.materialRepeatedNegative) return 'CAUTION';
+  if (input.recommendationScore < 0.68) return 'CAUTION';
+  if (input.valueLed && input.priceStatus !== 'verified') return 'PROMISING_NEEDS_VERIFICATION';
+  if (input.recommendationScore >= 0.78 && input.evidenceConfidence >= 0.72) return 'STRONG_RECOMMENDATION';
+  if (input.evidenceConfidence >= 0.55) return 'RECOMMENDED';
+  return 'PROMISING_NEEDS_VERIFICATION';
+}
+
+function buildRationale(
+  plan: ShoppingResearchPlan,
+  dimensions: Record<string, number>,
+  confidence: ShoppingConfidenceDimensions,
+  consensus: Map<string, ReviewConsensus>,
+  economics: CandidateEconomics,
+  bestValueEligible: boolean,
+  legacy: { strengths: string[]; tradeoffs: string[]; negativeSignals: string[] },
+): RecommendationRationale {
+  const whyItRanks = Object.entries(dimensions)
+    .filter(([, score]) => score >= 0.72)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([dimension]) => dimension);
+  const bestFor = plan.preferences
+    .filter((preference) => (dimensions[preference.dimension] ?? 0) >= 0.68)
+    .sort((a, b) => b.weight - a.weight)
+    .map((preference) => preference.dimension);
+  const repeatedNegativeTopics = materialNegativeTopics(consensus);
+
+  return {
+    whyItRanks,
+    bestFor,
+    tradeoffs: [...legacy.tradeoffs],
+    evidenceGaps: evidenceGaps(confidence, economics.priceStatus),
+    repeatedNegativeTopics,
+    priceStatus: economics.priceStatus,
+    bestValueEligible,
+  };
+}
+
 export function rankShoppingCandidates(input: RankShoppingInput): CandidateAssessment[] {
-  // Final recommendations require verified hard-constraint eligibility. Preliminary
-  // candidates remain available in diagnostics/enrichment but never enter the Top 5.
   const candidates = input.candidates.filter((candidate) => candidate.constraintState === 'ELIGIBLE');
   const offers = input.offers ?? [];
   const dedupedReviews = deduplicateReviewEvidence(input.reviews);
   const economics = new Map(candidates.map((candidate) => [candidate.key, economicsFor(candidate, offers)]));
   const priceCohort = candidates
-    .map((candidate) => economics.get(candidate.key)?.indicativePrice)
-    .filter((value): value is number => value !== undefined);
+    .map((candidate) => {
+      const item = economics.get(candidate.key);
+      return item?.verifiedCashPrice ?? item?.indicativePrice;
+    })
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0);
 
   const assessments = candidates.map((candidate): CandidateAssessment => {
     const candidateReviews = dedupedReviews.filter((review) => review.candidateKey === candidate.key);
     const consensus = reviewMap(candidateReviews);
     const candidateEconomics = economics.get(candidate.key)!;
-    const value = normalizedPriceValue(candidateEconomics.indicativePrice, priceCohort);
-    const dimensionScores = input.plan.categoryId === 'portable_display'
-      ? portableDisplayScores(candidate, consensus, value)
-      : input.plan.categoryId === 'bedding'
-        ? beddingScores(candidate, consensus, value)
-        : { fit: candidate.constraintState === 'ELIGIBLE' ? 1 : 0.62, quality: 0.55, reviewConsensus: aggregateCategoryReviewScore(consensus), serviceWarranty: 0.5, value };
-    const recommendationScore = weightedScore(input.plan.dimensionWeights, dimensionScores);
     const confidence = confidenceDimensions(candidate, candidateReviews, candidateEconomics, Boolean(input.personalizationAvailable));
+    const evidenceConfidence = overallEvidenceConfidence(confidence);
+
+    const preliminaryDimensions = input.plan.categoryId === 'portable_display'
+      ? portableDisplayScores(candidate, consensus, 0)
+      : input.plan.categoryId === 'bedding'
+        ? beddingScores(candidate, consensus, 0)
+        : { fit: 1, quality: 0.55, reviewConsensus: aggregateCategoryReviewScore(consensus), serviceWarranty: 0.5, value: 0 };
+    const merit = meritScore(input.plan.dimensionWeights, preliminaryDimensions);
+    const visiblePrice = candidateEconomics.verifiedCashPrice ?? candidateEconomics.indicativePrice;
+    const productConfidence = productEvidenceConfidence(confidence);
+    // Product merit uses visible exact-page economics without letting shipping certainty
+    // change the quality score. Price certainty remains authoritative for value labels/tier.
+    const rankingValue = assessValue({
+      merit,
+      evidenceConfidence: productConfidence,
+      priceStatus: visiblePrice !== undefined ? 'verified' : 'unknown',
+      ...(visiblePrice !== undefined ? { price: visiblePrice } : {}),
+      cohortPrices: priceCohort,
+    });
+    const actualValue = assessValue({
+      merit,
+      evidenceConfidence: productConfidence,
+      priceStatus: candidateEconomics.priceStatus,
+      ...(visiblePrice !== undefined ? { price: visiblePrice } : {}),
+      cohortPrices: priceCohort,
+    });
+    const dimensionScores = { ...preliminaryDimensions, value: rankingValue.qualityAdjustedValue };
+    const recommendationScore = weightedScore(input.plan.dimensionWeights, dimensionScores);
     const explanations = explanation(dimensionScores, consensus, candidateEconomics);
+    const repeatedNegativeTopics = materialNegativeTopics(consensus);
+    const recommendationTier = classifyRecommendationTier({
+      recommendationScore,
+      evidenceConfidence,
+      priceStatus: candidateEconomics.priceStatus,
+      valueLed: isValueLed(input.plan),
+      materialRepeatedNegative: repeatedNegativeTopics.length > 0,
+    });
+    const rationale = buildRationale(
+      input.plan,
+      dimensionScores,
+      confidence,
+      consensus,
+      candidateEconomics,
+      actualValue.bestValueEligible,
+      explanations,
+    );
     const assessment: CandidateAssessment = {
       candidate,
       dimensionScores,
       recommendationScore,
-      evidenceConfidence: overallEvidenceConfidence(confidence),
+      evidenceConfidence,
       confidenceDimensions: confidence,
+      recommendationTier,
+      rationale,
       strengths: explanations.strengths,
       tradeoffs: explanations.tradeoffs,
       negativeSignals: explanations.negativeSignals,

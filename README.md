@@ -1,4 +1,4 @@
-# Korea Web Agent v0.7.1
+# Korea Web Agent v0.7.2
 
 Korea Web Agent is a read-only Korean product-research backend designed to be called from a dedicated Custom GPT. The primary experience is now natural-language product research inside ChatGPT; the existing PWA remains available as a diagnostic/manual testing surface.
 
@@ -9,6 +9,16 @@ Example:
 ```
 
 The agent resolves an exact product or a recommendation category, gathers attributable public evidence, normalizes multi-market offers, and conditionally asks a locally authenticated PC browser to verify up to eight difficult commerce pages. It separates cash, owned-card, public conditional, account-personalized, points-adjusted, refurb/open-box, and used prices and returns a conservative `BUY / WAIT / SKIP / INSUFFICIENT` result plus Best 3 recommendations when appropriate.
+
+## v0.7.2 Evidence-Aware Recommendation
+
+- Preliminary finalist selection prioritizes verified facts and evidence coverage over search prominence.
+- Review trust discounts sponsored material, stale reports, duplicated/reposted claims, and identity-mismatched evidence; search snippets never become verified-purchase evidence.
+- Value ranking separates product merit from price verification so a modestly more expensive but materially better product can outrank a weak cheapest option.
+- Unknown or indicative prices may inform research but cannot claim best-value eligibility; unresolved shipping lowers price confidence without lowering product-quality merit.
+- Recommendations expose deterministic tiers (`STRONG_RECOMMENDATION`, `RECOMMENDED`, `PROMISING_NEEDS_VERIFICATION`, `CAUTION`) and structured rationale.
+- Relay availability remains diagnostic/personalization-only and cannot change the public recommendation score, tier, order, or value eligibility.
+- Golden quality cases cover sponsored-volume bias, recent repeated defects, bedding quality trade-offs, unknown-price handling, and commerce-snippet misclassification.
 
 ## v0.7.1 Live Verification Hardening
 

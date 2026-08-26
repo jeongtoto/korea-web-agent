@@ -1,4 +1,5 @@
-import type { EvidenceClass } from '../core/types.ts';
+import type { AcquisitionMethod, EvidenceClass } from '../core/types.ts';
+import { collapseReviewIndependence } from './review-trust.ts';
 
 export type ReviewPolarity = 'positive' | 'neutral' | 'negative';
 
@@ -7,12 +8,19 @@ export interface ReviewEvidence {
   topic: string;
   polarity: ReviewPolarity;
   sourceClass: EvidenceClass;
+  acquisitionMethod?: AcquisitionMethod;
+  identityRelevance?: number;
+  verifiedPurchaseConfidence?: number;
   verifiedPurchase?: boolean;
   sponsored?: boolean;
   publishedAt?: string;
   retrievedAt: string;
   sourceUrl: string;
   independenceKey: string;
+  authorKey?: string;
+  claimFingerprint?: string;
+  independenceConfidence?: number;
+  effectiveWeight?: number;
   confidence: number;
   claim: string;
 }
@@ -32,6 +40,12 @@ export interface AnalyzeReviewClaimInput {
   sourceUrl: string;
   retrievedAt: string;
   independenceKey: string;
+  acquisitionMethod?: AcquisitionMethod;
+  identityRelevance?: number;
+  verifiedPurchaseConfidence?: number;
+  authorKey?: string;
+  claimFingerprint?: string;
+  effectiveWeight?: number;
   verifiedPurchase?: boolean;
   sponsored?: boolean;
   publishedAt?: string;
@@ -141,6 +155,12 @@ export function analyzeReviewClaim(input: AnalyzeReviewClaimInput): ReviewEviden
       independenceKey: input.independenceKey,
       confidence,
       claim,
+      ...(input.acquisitionMethod ? { acquisitionMethod: input.acquisitionMethod } : {}),
+      ...(input.identityRelevance !== undefined ? { identityRelevance: input.identityRelevance } : {}),
+      ...(input.verifiedPurchaseConfidence !== undefined ? { verifiedPurchaseConfidence: input.verifiedPurchaseConfidence } : {}),
+      ...(input.authorKey ? { authorKey: input.authorKey } : {}),
+      ...(input.claimFingerprint ? { claimFingerprint: input.claimFingerprint } : {}),
+      ...(input.effectiveWeight !== undefined ? { effectiveWeight: input.effectiveWeight } : {}),
       ...(input.verifiedPurchase !== undefined ? { verifiedPurchase: input.verifiedPurchase } : {}),
       ...(sponsored ? { sponsored: true } : {}),
       ...(input.publishedAt ? { publishedAt: input.publishedAt } : {}),
@@ -152,10 +172,14 @@ export function analyzeReviewClaim(input: AnalyzeReviewClaimInput): ReviewEviden
 
 export function deduplicateReviewEvidence(items: ReviewEvidence[]): ReviewEvidence[] {
   const byKey = new Map<string, ReviewEvidence>();
-  for (const item of items) {
+  for (const item of collapseReviewIndependence(items)) {
     const key = `${item.candidateKey}|${item.topic}|${item.independenceKey}`;
     const existing = byKey.get(key);
-    if (!existing || item.confidence > existing.confidence) byKey.set(key, item);
+    const itemWeight = (item.effectiveWeight ?? item.confidence) * (item.independenceConfidence ?? 1);
+    const existingWeight = existing
+      ? (existing.effectiveWeight ?? existing.confidence) * (existing.independenceConfidence ?? 1)
+      : -1;
+    if (!existing || itemWeight > existingWeight) byKey.set(key, item);
   }
   return [...byKey.values()];
 }
@@ -177,7 +201,10 @@ export function aggregateReviewConsensus(items: ReviewEvidence[]): ReviewConsens
     let sponsoredOnly = true;
 
     for (const item of evidence) {
-      const effective = clamp(item.confidence * sourceMultiplier(item));
+      const baseEffective = item.effectiveWeight !== undefined
+        ? clamp(item.effectiveWeight)
+        : clamp(item.confidence * sourceMultiplier(item));
+      const effective = clamp(baseEffective * (item.independenceConfidence ?? 1));
       if (item.polarity === 'positive') positiveWeight += effective;
       if (item.polarity === 'negative') negativeWeight += effective;
       if (item.polarity === 'neutral') {
@@ -189,9 +216,9 @@ export function aggregateReviewConsensus(items: ReviewEvidence[]): ReviewConsens
       if (!item.sponsored && item.sourceClass !== 'sponsored_content') sponsoredOnly = false;
     }
 
-    const independentSources = evidence.length;
+    const independentSources = new Set(evidence.map((item) => item.independenceKey)).size;
     const average = confidenceWeight ? confidenceTotal / confidenceWeight : 0;
-    const coverageMultiplier = independentSources >= 3 ? 1 : independentSources === 2 ? 0.8 : 0.55;
+    const coverageMultiplier = independentSources >= 3 ? 1 : independentSources === 2 ? 0.8 : independentSources === 1 ? 0.55 : 0.35;
     let confidence = clamp(average * coverageMultiplier);
     if (sponsoredOnly) confidence = Math.min(confidence, 0.6);
 

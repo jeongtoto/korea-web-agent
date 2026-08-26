@@ -1,4 +1,5 @@
 import type { OfferCondition } from '../core/types.ts';
+import type { PriceStatus } from './value-model.ts';
 
 export type ShoppingMode = 'EXACT_PRODUCT' | 'COMPARISON' | 'RECOMMENDATION';
 
@@ -7,6 +8,22 @@ export type ShoppingCategoryId = 'portable_display' | 'bedding' | 'unknown';
 export type ShoppingConstraintState = 'ELIGIBLE' | 'PRELIMINARY' | 'EXCLUDED';
 
 export type ShoppingConstraintOperator = 'eq' | 'min' | 'max' | 'includes';
+
+export type RecommendationTier =
+  | 'STRONG_RECOMMENDATION'
+  | 'RECOMMENDED'
+  | 'PROMISING_NEEDS_VERIFICATION'
+  | 'CAUTION';
+
+export interface RecommendationRationale {
+  whyItRanks: string[];
+  bestFor: string[];
+  tradeoffs: string[];
+  evidenceGaps: string[];
+  repeatedNegativeTopics: string[];
+  priceStatus: PriceStatus;
+  bestValueEligible: boolean;
+}
 
 export interface ShoppingConstraint {
   id: string;
