@@ -4,6 +4,7 @@ import { assertPublicUrl } from '../core/policy.ts';
 import type {
   CanonicalIdentityMatch,
   CanonicalProductIdentity,
+  MandatoryFeeStatus,
   MarketOffer,
   NormalizedTarget,
   ProductConstraint,
@@ -74,6 +75,18 @@ export interface VerifiedSellerOfferInput {
   verificationTrace?: SellerCandidate['verificationTrace'];
 }
 
+function mandatoryFeeState(page: DirectPageResult): {
+  status: MandatoryFeeStatus;
+  amount?: number;
+} {
+  const amount = page.facts?.mandatoryPurchaseFee;
+  if (amount !== undefined && Number.isFinite(amount) && amount >= 0) {
+    return { status: 'required', amount };
+  }
+  if (page.facts?.mandatoryFeeSignal === true) return { status: 'unknown' };
+  return { status: 'not_applicable' };
+}
+
 export function verifiedSellerOfferFromPage(input: VerifiedSellerOfferInput): MarketOffer | null {
   const facts = input.page.facts;
   const price = facts?.price ?? input.page.product?.offers?.price;
@@ -85,17 +98,27 @@ export function verifiedSellerOfferFromPage(input: VerifiedSellerOfferInput): Ma
   const shippingFee = facts?.shippingFee ?? input.page.product?.offers?.shippingFee;
   const availability = facts?.availability ?? input.page.product?.offers?.availability;
   const condition = candidateIdentity.condition === 'any' ? 'unknown' : candidateIdentity.condition;
+  const mandatoryFee = mandatoryFeeState(input.page);
+  const totalCashPrice = shippingFee !== undefined && mandatoryFee.status !== 'unknown'
+    ? Math.round(price + shippingFee + (mandatoryFee.amount ?? 0))
+    : undefined;
   const eligible = identity.verdict === 'exact'
     && constraintStatus === 'eligible'
     && shippingFee !== undefined
+    && mandatoryFee.status !== 'unknown'
     && !unavailable(availability);
   const exclusionReasons: string[] = [];
   if (identity.verdict !== 'exact') exclusionReasons.push(`identity:${identity.verdict}`);
   if (constraintStatus !== 'eligible') exclusionReasons.push(`constraints:${constraintStatus}`);
   if (shippingFee === undefined) exclusionReasons.push('shipping:unknown');
+  if (mandatoryFee.status === 'unknown') exclusionReasons.push('mandatory_fee:unknown');
   if (unavailable(availability)) exclusionReasons.push('availability:unavailable');
 
   const sellerCanonicalUrl = assertPublicUrl(input.page.url).toString();
+  const riskFlags: string[] = [];
+  if (shippingFee === undefined) riskFlags.push('배송비가 확인되지 않았습니다.');
+  if (mandatoryFee.status === 'unknown') riskFlags.push('필수 구매 비용 금액이 확인되지 않았습니다.');
+
   return {
     id: `${marketFromSellerUrl(sellerCanonicalUrl)}:${sellerCanonicalUrl}`,
     market: marketFromSellerUrl(sellerCanonicalUrl),
@@ -116,6 +139,11 @@ export function verifiedSellerOfferFromPage(input: VerifiedSellerOfferInput): Ma
     bundleComplete: identity.verdict === 'exact' || identity.verdict === 'same_except_condition',
     eligible,
     salePrice: price,
+    mandatoryFeeStatus: mandatoryFee.status,
+    ...(mandatoryFee.amount !== undefined ? {
+      mandatoryPurchaseFee: mandatoryFee.amount,
+      mandatoryFees: [mandatoryFee.amount],
+    } : {}),
     ...(shippingFee !== undefined ? {
       shippingFee,
       shipping: {
@@ -123,10 +151,10 @@ export function verifiedSellerOfferFromPage(input: VerifiedSellerOfferInput): Ma
         ...(shippingFee > 0 ? { baseFee: shippingFee } : {}),
         verification: 'page_verified',
       },
-      totalCashPrice: Math.round(price + shippingFee),
     } : {
       shipping: { status: 'unknown', verification: 'unverified' },
     }),
+    ...(totalCashPrice !== undefined ? { totalCashPrice } : {}),
     ...(availability ? { availability } : {}),
     sellerInfo: {
       ...(input.sellerName ? { name: input.sellerName } : {}),
@@ -149,14 +177,16 @@ export function verifiedSellerOfferFromPage(input: VerifiedSellerOfferInput): Ma
         priceStatus: 'page_verified',
         shippingStatus: shippingFee === undefined ? 'unknown' : shippingFee === 0 ? 'free' : 'paid',
         availabilityStatus: unavailable(availability) ? 'unavailable' : availability ? 'available' : 'unknown',
+        mandatoryFeeStatus: mandatoryFee.status,
         sellerVerifiedPrice: price,
-        ...(shippingFee !== undefined ? { totalCashPrice: Math.round(price + shippingFee) } : {}),
+        ...(mandatoryFee.amount !== undefined ? { mandatoryPurchaseFee: mandatoryFee.amount } : {}),
+        ...(totalCashPrice !== undefined ? { totalCashPrice } : {}),
         rejectionReasons: [...exclusionReasons],
         retrievedAt: input.retrievedAt,
       },
     } : {}),
     conditions: [],
-    riskFlags: shippingFee === undefined ? ['배송비가 확인되지 않았습니다.'] : [],
+    riskFlags,
     exclusionReasons,
   };
 }
