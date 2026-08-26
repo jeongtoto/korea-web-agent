@@ -208,6 +208,36 @@ components:
         price: { type: string, enum: [checkout_verified, page_verified, search_metadata, unverified] }
         shipping: { type: string, enum: [checkout_verified, page_verified, search_metadata, unverified] }
         payment: { type: string, enum: [checkout_verified, page_verified, search_metadata, unverified] }
+    ShippingQuote:
+      type: object
+      required: [status, verification]
+      properties:
+        status: { type: string, enum: [free, paid, conditional_free, unknown] }
+        baseFee: { type: number, minimum: 0 }
+        threshold: { type: number, minimum: 0 }
+        verification: { type: string, enum: [checkout_verified, page_verified, search_metadata, unverified] }
+        remoteAreaExtraUnknown: { type: boolean }
+    PromotionState:
+      type: object
+      required: [type, active]
+      properties:
+        type: { type: string, enum: [time_deal, public_coupon, instant_discount, none] }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        active:
+          oneOf:
+            - type: boolean
+            - type: string
+              enum: [unknown]
+        condition: { type: string }
+        accountRequired: { type: boolean }
+    SellerInfo:
+      type: object
+      properties:
+        name: { type: string }
+        productId: { type: string }
+        canonicalUrl: { type: string, format: uri }
+        discoveredBy: { type: array, items: { type: string } }
     ReliabilityIssue:
       type: object
       required: [code, severity, message]
@@ -259,6 +289,8 @@ components:
         fieldVerification:
           $ref: '#/components/schemas/FieldVerification'
         seller: { type: string }
+        sellerInfo:
+          $ref: '#/components/schemas/SellerInfo'
         bundleItems: { type: array, items: { type: string } }
         listPrice: { type: number }
         salePrice: { type: number }
@@ -270,7 +302,12 @@ components:
         paymentMethod: { type: string }
         points: { type: number }
         shippingFee: { type: number }
+        shipping:
+          $ref: '#/components/schemas/ShippingQuote'
         installationFee: { type: number }
+        mandatoryFees: { type: array, items: { type: number, minimum: 0 } }
+        promotion:
+          $ref: '#/components/schemas/PromotionState'
         totalCashPrice: { type: number }
         effectivePrice: { type: number }
         availability: { type: string }
@@ -281,7 +318,7 @@ components:
       type: object
       required: [basis, rank, amount, offer, reasons]
       properties:
-        basis: { type: string, enum: [cash, owned_card, conditional_payment, effective, alternative_condition] }
+        basis: { type: string, enum: [cash, owned_card, conditional_payment, public_conditional, effective, alternative_condition] }
         rank: { type: integer, minimum: 1 }
         amount: { type: number }
         offer: { $ref: '#/components/schemas/MarketOffer' }
@@ -292,17 +329,24 @@ components:
         cash: { $ref: '#/components/schemas/RankedOffer' }
         ownedCard: { $ref: '#/components/schemas/RankedOffer' }
         conditionalPayment: { $ref: '#/components/schemas/RankedOffer' }
+        publicConditional: { $ref: '#/components/schemas/RankedOffer' }
         effective: { $ref: '#/components/schemas/RankedOffer' }
         alternativeCondition: { $ref: '#/components/schemas/RankedOffer' }
     MarketCoverage:
       type: object
       required: [market, attempted, found, verified, status]
       properties:
+        providerId: { type: string }
         market: { type: string }
         attempted: { type: boolean }
         found: { type: integer, minimum: 0 }
         verified: { type: integer, minimum: 0 }
         status: { type: string, enum: [verified, found_unverified, no_match, failed, not_attempted] }
+        comparisonPages: { type: integer, minimum: 0 }
+        expandedSellers: { type: integer, minimum: 0 }
+        exactOffers: { type: integer, minimum: 0 }
+        eligibleSellers: { type: integer, minimum: 0 }
+        failureKind: { type: string, enum: [captcha, login_required, rate_limited, network_transient, blocked_by_site, not_found, region_required, stock_check_required, parse_failed, relay_offline, unknown] }
         message: { type: string }
     Recommendation:
       type: object
