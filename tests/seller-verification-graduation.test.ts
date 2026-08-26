@@ -1,10 +1,28 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {
+  MANDATORY_FEE_STATUSES,
+  SELLER_RESOLUTION_METHODS,
+} from '../src/core/types.ts';
 import type {
   MarketOffer,
   SellerVerificationTrace,
 } from '../src/core/types.ts';
 import type { SellerCandidate } from '../src/providers/market-provider.ts';
+
+test('seller resolution and mandatory fee contracts expose stable runtime values', () => {
+  assert.deepEqual(SELLER_RESOLUTION_METHODS, [
+    'static_link',
+    'embedded_metadata',
+    'redirect_resolution',
+    'fallback_search',
+  ]);
+  assert.deepEqual(MANDATORY_FEE_STATUSES, [
+    'required',
+    'not_applicable',
+    'unknown',
+  ]);
+});
 
 test('seller verification trace fields remain backward-compatible optional contracts', () => {
   const trace: SellerVerificationTrace = {
