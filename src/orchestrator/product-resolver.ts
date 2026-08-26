@@ -171,6 +171,43 @@ function resolvedWithCanonical(
   };
 }
 
+function resolveStrongExplicitCommerceUrl(request: ResearchRequest): ProductResolution | undefined {
+  if (!request.url) return undefined;
+  const requestedIdentity = querySeed(request.question);
+  if (!requestedIdentity.brand || !requestedIdentity.model) return undefined;
+
+  let url: URL;
+  try {
+    url = new URL(request.url);
+  } catch {
+    return undefined;
+  }
+
+  const target: NormalizedTarget = {
+    ...requestedIdentity,
+    kind: 'product',
+    sourceHost: url.hostname,
+    canonicalUrl: url.toString(),
+  };
+  const confidence = 0.86;
+  return resolvedWithCanonical({
+    target,
+    confidence,
+    ambiguous: false,
+    candidates: [{
+      target,
+      score: confidence,
+      sourceUrls: [url.toString()],
+      title: requestedIdentity.name ?? request.question,
+    }],
+    identityEvidence: [{
+      title: requestedIdentity.name ?? request.question,
+      url: url.toString(),
+      score: confidence,
+    }],
+  }, request.question);
+}
+
 async function enrichParsedProduct(
   parsed: NormalizedTarget,
   request: ResearchRequest,
@@ -243,6 +280,8 @@ export async function resolveProduct(
         ...(requestedIdentity.name ? { name: requestedIdentity.name } : {}),
       }, request, deps);
     }
+    const explicitCommerceTarget = resolveStrongExplicitCommerceUrl(request);
+    if (explicitCommerceTarget) return explicitCommerceTarget;
   }
 
   const query = cleanQuestion(request.question);
