@@ -1,0 +1,100 @@
+name: v074-task1-green
+
+on:
+  push:
+    branches:
+      - feature/v0.7.4-seller-verification-graduation
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v0.7.4-seller-verification-graduation
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply exact contract patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          types = Path('src/core/types.ts')
+          text = types.read_text()
+          old = "export type ShippingStatus = 'free' | 'paid' | 'conditional_free' | 'unknown';\n\nexport interface ShippingQuote {"
+          new = """export type ShippingStatus = 'free' | 'paid' | 'conditional_free' | 'unknown';
+
+export const SELLER_RESOLUTION_METHODS = [
+  'static_link',
+  'embedded_metadata',
+  'redirect_resolution',
+  'fallback_search',
+] as const;
+export type SellerResolutionMethod = (typeof SELLER_RESOLUTION_METHODS)[number];
+
+export const MANDATORY_FEE_STATUSES = ['required', 'not_applicable', 'unknown'] as const;
+export type MandatoryFeeStatus = (typeof MANDATORY_FEE_STATUSES)[number];
+
+export interface SellerVerificationTrace {
+  comparisonSource?: string;
+  comparisonUrl?: string;
+  resolutionMethod?: SellerResolutionMethod;
+  originalSellerUrl?: string;
+  resolvedSellerUrl?: string;
+  identityVerdict?: IdentityVerdict;
+  bundleVerdict?: 'complete' | 'incomplete' | 'unknown';
+  priceStatus?: OfferVerification | 'missing';
+  shippingStatus?: ShippingStatus;
+  availabilityStatus?: 'available' | 'unavailable' | 'unknown';
+  mandatoryFeeStatus?: MandatoryFeeStatus;
+  comparisonAdvertisedPrice?: number;
+  sellerVerifiedPrice?: number;
+  mandatoryPurchaseFee?: number;
+  totalCashPrice?: number;
+  rejectionReasons: string[];
+  retrievedAt: string;
+}
+
+export interface ShippingQuote {"""
+          if text.count(old) != 1:
+              raise SystemExit(f'core type insertion match count={text.count(old)}')
+          text = text.replace(old, new)
+
+          old_offer = "  installationFee?: number;\n  mandatoryFees?: number[];\n  promotion?: PromotionState;"
+          new_offer = "  installationFee?: number;\n  mandatoryFees?: number[];\n  mandatoryPurchaseFee?: number;\n  mandatoryFeeStatus?: MandatoryFeeStatus;\n  verificationTrace?: SellerVerificationTrace;\n  promotion?: PromotionState;"
+          if text.count(old_offer) != 1:
+              raise SystemExit(f'MarketOffer insertion match count={text.count(old_offer)}')
+          types.write_text(text.replace(old_offer, new_offer))
+
+          provider = Path('src/providers/market-provider.ts')
+          text = provider.read_text()
+          old_import = "  ProductConstraint,\n} from '../core/types.ts';"
+          new_import = "  ProductConstraint,\n  SellerResolutionMethod,\n  SellerVerificationTrace,\n} from '../core/types.ts';"
+          if text.count(old_import) != 1:
+              raise SystemExit(f'provider import match count={text.count(old_import)}')
+          text = text.replace(old_import, new_import)
+
+          old_candidate = "  advertisedPrice?: number;\n  advertisedShipping?: number;\n}"
+          new_candidate = "  advertisedPrice?: number;\n  advertisedShipping?: number;\n  resolutionMethod?: SellerResolutionMethod;\n  originalSellerUrl?: string;\n  verificationTrace?: SellerVerificationTrace;\n}"
+          if text.count(old_candidate) != 1:
+              raise SystemExit(f'SellerCandidate insertion match count={text.count(old_candidate)}')
+          provider.write_text(text.replace(old_candidate, new_candidate))
+          PY
+      - name: Verify patch scope
+        run: |
+          git diff --check
+          git diff -- src/core/types.ts src/providers/market-provider.ts
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "src/core/types.ts src/providers/market-provider.ts "
+      - name: Commit source changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/core/types.ts src/providers/market-provider.ts
+          git commit -m "feat: add seller verification trace contracts"
+          git push origin HEAD:feature/v0.7.4-seller-verification-graduation
