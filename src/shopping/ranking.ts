@@ -5,7 +5,8 @@ import {
   type ReviewConsensus,
   type ReviewEvidence,
 } from './review-intelligence.ts';
-import type { FactValue, ShoppingCandidate, ShoppingResearchPlan } from './types.ts';
+import type { ShoppingCandidate, ShoppingResearchPlan } from './types.ts';
+import { assessValue, type PriceStatus } from './value-model.ts';
 
 export interface ShoppingConfidenceDimensions {
   identity: number;
@@ -43,6 +44,7 @@ export interface RankShoppingInput {
 interface CandidateEconomics {
   verifiedCashPrice?: number;
   indicativePrice?: number;
+  priceStatus: PriceStatus;
   priceConfidence: number;
   offerUrls: string[];
 }
@@ -67,15 +69,6 @@ function stringFact(candidate: ShoppingCandidate, field: string): string | undef
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-function factVerification(candidate: ShoppingCandidate, field: string): FactValue['verification'] | undefined {
-  return candidate.facts[field]?.verification;
-}
-
-function verifiedFact(candidate: ShoppingCandidate, field: string): boolean {
-  const verification = factVerification(candidate, field);
-  return verification === 'page_verified' || verification === 'official';
-}
-
 function reviewMap(reviews: ReviewEvidence[]): Map<string, ReviewConsensus> {
   return new Map(aggregateReviewConsensus(reviews).map((item) => [item.topic, item]));
 }
@@ -84,7 +77,7 @@ function reviewDirection(consensus: ReviewConsensus | undefined): number {
   if (!consensus) return 0;
   const total = consensus.positiveWeight + consensus.negativeWeight;
   if (total <= 0) return 0;
-  return clamp((consensus.positiveWeight / total)) * 2 - 1;
+  return clamp(consensus.positiveWeight / total) * 2 - 1;
 }
 
 function reviewQuality(consensus: ReviewConsensus | undefined, fallback = 0.5): number {
@@ -138,23 +131,28 @@ function economicsFor(candidate: ShoppingCandidate, offers: MarketOffer[]): Cand
     .filter((item): item is { offer: MarketOffer; amount: number } => item.amount !== undefined)
     .sort((a, b) => a.amount - b.amount)[0];
 
+  if (decisive?.totalCashPrice !== undefined) {
+    return {
+      verifiedCashPrice: decisive.totalCashPrice,
+      ...(indicative ? { indicativePrice: indicative.amount } : {}),
+      priceStatus: 'verified',
+      priceConfidence: 0.95,
+      offerUrls: [...new Set(matching.map((offer) => offer.url))],
+    };
+  }
+  if (indicative) {
+    return {
+      indicativePrice: indicative.amount,
+      priceStatus: 'indicative',
+      priceConfidence: 0.45,
+      offerUrls: [...new Set(matching.map((offer) => offer.url))],
+    };
+  }
   return {
-    ...(decisive?.totalCashPrice !== undefined ? { verifiedCashPrice: decisive.totalCashPrice } : {}),
-    ...(indicative ? { indicativePrice: indicative.amount } : {}),
-    priceConfidence: decisive ? 0.95 : indicative ? 0.35 : 0,
+    priceStatus: 'unknown',
+    priceConfidence: 0,
     offerUrls: [...new Set(matching.map((offer) => offer.url))],
   };
-}
-
-function normalizedPriceValue(price: number | undefined, cohort: number[]): number {
-  if (price === undefined || !cohort.length) return 0.55;
-  if (cohort.length === 1) return 0.72;
-  const min = Math.min(...cohort);
-  const max = Math.max(...cohort);
-  if (max <= min) return 0.72;
-  const relative = (price - min) / (max - min);
-  // Keep price important without allowing a modest price gap to erase material quality differences.
-  return clamp(0.95 - relative * 0.35);
 }
 
 function portableDisplayScores(
@@ -229,6 +227,13 @@ function weightedScore(weights: Record<string, number>, dimensions: Record<strin
   return weight > 0 ? clamp(weighted / weight) : 0;
 }
 
+function meritScore(weights: Record<string, number>, dimensions: Record<string, number>): number {
+  return weightedScore(
+    Object.fromEntries(Object.entries(weights).filter(([dimension]) => dimension !== 'value')),
+    dimensions,
+  );
+}
+
 function confidenceDimensions(
   candidate: ShoppingCandidate,
   candidateReviews: ReviewEvidence[],
@@ -264,7 +269,6 @@ function confidenceDimensions(
 }
 
 function overallEvidenceConfidence(dimensions: ShoppingConfidenceDimensions): number {
-  // Personalization is deliberately excluded: public recommendation confidence is cloud-first.
   return clamp(
     dimensions.identity * 0.18 +
     dimensions.hardConstraints * 0.18 +
@@ -301,41 +305,56 @@ function explanation(
     .sort((a, b) => b.confidence - a.confidence)
     .map((item) => item.topic);
   const tradeoffs: string[] = [];
-  if (economics.verifiedCashPrice === undefined) tradeoffs.push('verified_cash_price_unavailable');
+  if (economics.priceStatus !== 'verified') tradeoffs.push('verified_cash_price_unavailable');
   if (!reviews.size) tradeoffs.push('independent_review_evidence_sparse');
   if (negativeSignals.length) tradeoffs.push(...negativeSignals.map((topic) => `negative:${topic}`));
   return { strengths, tradeoffs, negativeSignals };
 }
 
 export function rankShoppingCandidates(input: RankShoppingInput): CandidateAssessment[] {
-  // Final recommendations require verified hard-constraint eligibility. Preliminary
-  // candidates remain available in diagnostics/enrichment but never enter the Top 5.
   const candidates = input.candidates.filter((candidate) => candidate.constraintState === 'ELIGIBLE');
   const offers = input.offers ?? [];
   const dedupedReviews = deduplicateReviewEvidence(input.reviews);
   const economics = new Map(candidates.map((candidate) => [candidate.key, economicsFor(candidate, offers)]));
   const priceCohort = candidates
-    .map((candidate) => economics.get(candidate.key)?.indicativePrice)
-    .filter((value): value is number => value !== undefined);
+    .map((candidate) => {
+      const item = economics.get(candidate.key);
+      return item?.verifiedCashPrice ?? item?.indicativePrice;
+    })
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0);
 
   const assessments = candidates.map((candidate): CandidateAssessment => {
     const candidateReviews = dedupedReviews.filter((review) => review.candidateKey === candidate.key);
     const consensus = reviewMap(candidateReviews);
     const candidateEconomics = economics.get(candidate.key)!;
-    const value = normalizedPriceValue(candidateEconomics.indicativePrice, priceCohort);
-    const dimensionScores = input.plan.categoryId === 'portable_display'
-      ? portableDisplayScores(candidate, consensus, value)
-      : input.plan.categoryId === 'bedding'
-        ? beddingScores(candidate, consensus, value)
-        : { fit: candidate.constraintState === 'ELIGIBLE' ? 1 : 0.62, quality: 0.55, reviewConsensus: aggregateCategoryReviewScore(consensus), serviceWarranty: 0.5, value };
-    const recommendationScore = weightedScore(input.plan.dimensionWeights, dimensionScores);
     const confidence = confidenceDimensions(candidate, candidateReviews, candidateEconomics, Boolean(input.personalizationAvailable));
+    const evidenceConfidence = overallEvidenceConfidence(confidence);
+
+    const preliminaryDimensions = input.plan.categoryId === 'portable_display'
+      ? portableDisplayScores(candidate, consensus, 0)
+      : input.plan.categoryId === 'bedding'
+        ? beddingScores(candidate, consensus, 0)
+        : { fit: 1, quality: 0.55, reviewConsensus: aggregateCategoryReviewScore(consensus), serviceWarranty: 0.5, value: 0 };
+    const merit = meritScore(input.plan.dimensionWeights, preliminaryDimensions);
+    const valueAssessment = assessValue({
+      merit,
+      evidenceConfidence,
+      priceStatus: candidateEconomics.priceStatus,
+      ...(candidateEconomics.verifiedCashPrice !== undefined
+        ? { price: candidateEconomics.verifiedCashPrice }
+        : candidateEconomics.indicativePrice !== undefined
+          ? { price: candidateEconomics.indicativePrice }
+          : {}),
+      cohortPrices: priceCohort,
+    });
+    const dimensionScores = { ...preliminaryDimensions, value: valueAssessment.qualityAdjustedValue };
+    const recommendationScore = weightedScore(input.plan.dimensionWeights, dimensionScores);
     const explanations = explanation(dimensionScores, consensus, candidateEconomics);
     const assessment: CandidateAssessment = {
       candidate,
       dimensionScores,
       recommendationScore,
-      evidenceConfidence: overallEvidenceConfidence(confidence),
+      evidenceConfidence,
       confidenceDimensions: confidence,
       strengths: explanations.strengths,
       tradeoffs: explanations.tradeoffs,
