@@ -1,0 +1,51 @@
+export type ShoppingMode = 'EXACT_PRODUCT' | 'COMPARISON' | 'RECOMMENDATION';
+
+export type ShoppingCategoryId = 'portable_display' | 'bedding' | 'unknown';
+
+export type ShoppingConstraintState = 'ELIGIBLE' | 'PRELIMINARY' | 'EXCLUDED';
+
+export type ShoppingConstraintOperator = 'eq' | 'min' | 'max' | 'includes';
+
+export interface ShoppingConstraint {
+  id: string;
+  field: string;
+  operator: ShoppingConstraintOperator;
+  expected: string | number | boolean | string[];
+  strength: 'hard' | 'soft';
+}
+
+export interface ShoppingPreference {
+  dimension: string;
+  weight: number;
+  evidence: string;
+}
+
+export interface DiscoveryQuery {
+  id: string;
+  query: string;
+  maxHits: number;
+  sourceGroup: 'general' | 'market' | 'official' | 'review';
+}
+
+export interface ShoppingStageLimits {
+  rawHits: number;
+  normalizedCandidates: number;
+  lightEnrichment: number;
+  shortlist: number;
+  deepResearch: number;
+  fullPriceVerification: number;
+}
+
+export interface ShoppingResearchPlan {
+  mode: ShoppingMode;
+  categoryId: ShoppingCategoryId;
+  budget?: {
+    max: number;
+    strength: 'hard' | 'soft';
+  };
+  hardConstraints: ShoppingConstraint[];
+  preferences: ShoppingPreference[];
+  dimensionWeights: Record<string, number>;
+  discoveryQueries: DiscoveryQuery[];
+  limits: ShoppingStageLimits;
+}
