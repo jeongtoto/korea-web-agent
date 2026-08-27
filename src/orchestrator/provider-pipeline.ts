@@ -563,27 +563,63 @@ export async function runMarketProviderCoverage(
         uniqueCandidates.push(candidate);
       }
 
-      const selected = uniqueCandidates.slice(0, provider.budget.verification);
-      await mapWithConcurrency(selected, PROVIDER_CONCURRENCY.verification, async (candidate) => {
-        if (remainingMs() <= 0) return;
-        attempt.verification.attempted += 1;
-        try {
-          const verified = await timed(() => provider.verify(candidate, context));
-          attempt.verification.succeeded += 1;
-          evidence.push(...verified.page.evidence);
-          const offer = await provider.extractOffer(verified, context);
-          if (!offer) return;
-          offers.push(offer);
-          attempt.offers.extracted += 1;
-          if (offer.identityVerdict === 'exact') attempt.exactOffers = (attempt.exactOffers ?? 0) + 1;
-          if (offer.eligible || alternativeVerified(offer)) {
-            attempt.offers.eligible += 1;
-            attempt.eligibleSellers = (attempt.eligibleSellers ?? 0) + 1;
+      const verificationBudget = provider.budget.verification;
+      const fallbackAnchor = provider.fallbackSellers
+        ? ranked.find((item) => item.verdict === 'exact')?.candidate
+        : undefined;
+      const reserveFallback = Boolean(fallbackAnchor && provider.expandSellers && verificationBudget > 1);
+      const primaryLimit = reserveFallback ? verificationBudget - 1 : verificationBudget;
+      const attemptedUrls = new Set<string>();
+
+      const verifyBatch = async (candidates: VerificationCandidate[]): Promise<number> => {
+        let extractedSellerOffers = 0;
+        await mapWithConcurrency(candidates, PROVIDER_CONCURRENCY.verification, async (candidate) => {
+          if (remainingMs() <= 0 || attempt.verification.attempted >= verificationBudget) return;
+          const url = directCandidateUrl(candidate);
+          if (attemptedUrls.has(url)) return;
+          attemptedUrls.add(url);
+          attempt.verification.attempted += 1;
+          try {
+            const verified = await timed(() => provider.verify(candidate, context));
+            attempt.verification.succeeded += 1;
+            evidence.push(...verified.page.evidence);
+            const offer = await provider.extractOffer(verified, context);
+            if (!offer) return;
+            extractedSellerOffers += 1;
+            offers.push(offer);
+            attempt.offers.extracted += 1;
+            if (offer.identityVerdict === 'exact') attempt.exactOffers = (attempt.exactOffers ?? 0) + 1;
+            if (offer.eligible || alternativeVerified(offer)) {
+              attempt.offers.eligible += 1;
+              attempt.eligibleSellers = (attempt.eligibleSellers ?? 0) + 1;
+            }
+          } catch (error) {
+            rememberFailure(attempt, error, true);
           }
+        });
+        return extractedSellerOffers;
+      };
+
+      const primary = uniqueCandidates.slice(0, primaryLimit);
+      const primaryOfferCount = await verifyBatch(primary);
+
+      if (fallbackAnchor && provider.fallbackSellers && primaryOfferCount === 0 && attempt.verification.attempted < verificationBudget && remainingMs() > 0) {
+        try {
+          const fallbackSellers = await timed(() => provider.fallbackSellers!(fallbackAnchor, context));
+          const fallbackCandidates: VerificationCandidate[] = [];
+          for (const candidate of fallbackSellers) {
+            const url = directCandidateUrl(candidate);
+            if (attemptedUrls.has(url) || fallbackCandidates.some((existing) => directCandidateUrl(existing) === url)) continue;
+            fallbackCandidates.push(candidate);
+          }
+          await verifyBatch(fallbackCandidates.slice(0, verificationBudget - attempt.verification.attempted));
         } catch (error) {
-          rememberFailure(attempt, error, true);
+          rememberFailure(attempt, error);
         }
-      });
+      } else if (primaryOfferCount > 0 && attempt.verification.attempted < verificationBudget) {
+        const remainingPrimary = uniqueCandidates.slice(primary.length);
+        await verifyBatch(remainingPrimary.slice(0, verificationBudget - attempt.verification.attempted));
+      }
 
       finishProviderAttempt(attempt, input.now);
       return { evidence, offers, attempts: [attempt] };
