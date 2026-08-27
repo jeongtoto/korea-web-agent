@@ -1,0 +1,132 @@
+name: temporary task7 gap patch
+
+on:
+  push:
+    branches:
+      - feature/v0.7.4-seller-verification-graduation
+    paths:
+      - .github/workflows/tmp-task7-gap-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: contains(github.event.head_commit.message, 'temporary task7 patch workflow')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/v0.7.4-seller-verification-graduation
+      - name: Patch agent output shaping
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/agent/research.ts')
+          s = p.read_text()
+
+          old = """export interface AgentSourceCoverage {\n  attempted: number;\n  succeeded: number;\n  failed: number;\n  evidenceCount: number;\n}\n\nexport interface AgentResearchResult {"""
+          new = """export interface AgentSourceCoverage {\n  attempted: number;\n  succeeded: number;\n  failed: number;\n  evidenceCount: number;\n}\n\nexport type AgentVerificationGap =\n  | 'seller_resolution_failed'\n  | 'seller_identity_mismatch'\n  | 'shipping_unknown'\n  | 'availability_unresolved'\n  | 'mandatory_fee_unknown';\n\nexport interface AgentResearchResult {"""
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = """  validationWarnings?: ReliabilityIssue[];\n  shopping?: ShoppingResearchResult;"""
+          new = """  validationWarnings?: ReliabilityIssue[];\n  verificationGap?: AgentVerificationGap;\n  shopping?: ShoppingResearchResult;"""
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          marker = """export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {"""
+          helper = r'''const VERIFICATION_GAP_MESSAGES: Record<AgentVerificationGap, string> = {
+  seller_identity_mismatch: '최종 판매자 페이지에서 요청한 정확한 상품·구성 일치를 확인하지 못했습니다.',
+  mandatory_fee_unknown: '필수 구매 비용이 존재하지만 금액을 확정하지 못했습니다.',
+  shipping_unknown: '최종 판매자 페이지에서 배송비를 확정하지 못했습니다.',
+  availability_unresolved: '최종 판매자 페이지에서 현재 구매 가능 여부를 확정하지 못했습니다.',
+  seller_resolution_failed: '비교 페이지에서 검증 가능한 최종 판매자 페이지를 확인하지 못했습니다.',
+};
+
+function hasReason(offer: MarketOffer, reason: string): boolean {
+  return Boolean(
+    offer.verificationTrace?.rejectionReasons.includes(reason)
+    || offer.exclusionReasons.includes(reason),
+  );
+}
+
+function dominantVerificationGap(report: ResearchJob['report']): AgentVerificationGap | undefined {
+  if (!report || report.decision !== 'INSUFFICIENT') return undefined;
+  const offers = report.offers ?? [];
+
+  if (offers.some((offer) => {
+    const verdict = offer.verificationTrace?.identityVerdict ?? offer.identityVerdict;
+    return Boolean(verdict && verdict !== 'exact')
+      || offer.verificationTrace?.rejectionReasons.some((reason) => reason.startsWith('identity:')) === true
+      || offer.exclusionReasons.some((reason) => reason.startsWith('identity:'));
+  })) return 'seller_identity_mismatch';
+
+  if (offers.some((offer) =>
+    offer.verificationTrace?.mandatoryFeeStatus === 'unknown'
+    || offer.mandatoryFeeStatus === 'unknown'
+    || hasReason(offer, 'mandatory_fee:unknown'))) return 'mandatory_fee_unknown';
+
+  if (offers.some((offer) =>
+    offer.verificationTrace?.shippingStatus === 'unknown'
+    || offer.shipping?.status === 'unknown'
+    || hasReason(offer, 'shipping:unknown'))) return 'shipping_unknown';
+
+  if (offers.some((offer) => offer.verificationTrace?.availabilityStatus === 'unknown')) {
+    return 'availability_unresolved';
+  }
+
+  if ((report.marketCoverage ?? []).some((row) =>
+    row.attempted
+    && (row.comparisonPages ?? 0) > 0
+    && (row.expandedSellers ?? 0) === 0
+    && row.found > 0)) return 'seller_resolution_failed';
+
+  return undefined;
+}
+
+function publicMarketCoverage(rows: MarketCoverage[]): MarketCoverage[] {
+  return rows.map((row) => {
+    const copy = { ...row };
+    delete copy.message;
+    return copy;
+  });
+}
+
+function gapAwareMissingInformation(
+  report: ResearchJob['report'],
+  gap: AgentVerificationGap | undefined,
+): string[] {
+  const existing = report?.missingInformation ?? ['제품 조사 결과가 충분하지 않습니다.'];
+  if (!gap) return existing;
+  return [...new Set([VERIFICATION_GAP_MESSAGES[gap], ...existing])];
+}
+
+'''
+          assert marker in s
+          s = s.replace(marker, helper + marker, 1)
+
+          old = """  if (job.relay.message) relay.message = job.relay.message;\n\n  const result: AgentResearchResult = {"""
+          new = """  if (job.relay.message) relay.message = job.relay.message;\n  const verificationGap = dominantVerificationGap(report);\n\n  const result: AgentResearchResult = {"""
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = """    missingInformation: report?.missingInformation ?? ['제품 조사 결과가 충분하지 않습니다.'],"""
+          new = """    missingInformation: gapAwareMissingInformation(report, verificationGap),"""
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = """  if (report?.bestOffers) result.bestOffers = report.bestOffers;\n  if (report?.marketCoverage) result.marketCoverage = report.marketCoverage;"""
+          new = """  if (report?.bestOffers) result.bestOffers = report.bestOffers;\n  if (report?.marketCoverage) result.marketCoverage = publicMarketCoverage(report.marketCoverage);\n  if (verificationGap) result.verificationGap = verificationGap;"""
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          p.write_text(s)
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/agent/research.ts
+          git commit -m "feat: expose seller verification gaps"
+          git push origin HEAD:feature/v0.7.4-seller-verification-graduation
