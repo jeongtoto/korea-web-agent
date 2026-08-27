@@ -74,7 +74,6 @@ export async function resolveComparisonBridgeCandidates(
     try {
       const redirect = await context.resolveSellerRedirect(candidate.sellerUrl);
       if (redirect.status === 'not_redirect') {
-        resolved.push(candidate);
         continue;
       }
       if (redirect.status !== 'resolved' || !redirect.resolvedUrl) continue;
