@@ -2,10 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compileCanonicalIdentity } from '../src/core/canonical-identity.ts';
 import type { DirectPageResult } from '../src/providers/direct-page.ts';
-import type { DiscoveryCandidate, MarketProviderContext } from '../src/providers/market-provider.ts';
+import type { DiscoveryCandidate, MarketProviderContext, SellerCandidate } from '../src/providers/market-provider.ts';
 import { danawaProvider } from '../src/providers/markets/danawa.ts';
-import { expandAndVerifySellers } from '../src/providers/seller-expansion.ts';
-import { createVerificationCache } from '../src/providers/verification-cache.ts';
 
 const target = {
   kind: 'product' as const,
@@ -92,18 +90,22 @@ test('exact fallback search enters ordinary seller-page verification only when c
     now: () => new Date('2026-08-27T00:00:00.000Z'),
   };
 
-  const offers = await expandAndVerifySellers(
-    danawaProvider,
-    candidate,
-    context,
-    createVerificationCache<DirectPageResult>(),
-  );
+  const expanded = await danawaProvider.expandSellers?.(candidate, context);
+  assert.equal(expanded?.length, 0);
+  assert.equal(searchCalls, 0, 'comparison expansion must not hide fallback discovery inside itself');
 
+  const fallback = await danawaProvider.fallbackSellers?.(candidate, context);
   assert.equal(searchCalls, 1);
+  assert.equal(fallback?.length, 1);
+  assert.equal(fallback?.[0]?.resolutionMethod, 'fallback_search');
+  assert.equal(fallback?.[0]?.advertisedPrice, undefined, 'search snippet price must stay discovery-only');
+
+  const verified = await danawaProvider.verify(fallback?.[0] as SellerCandidate, context);
+  const offer = await danawaProvider.extractOffer(verified, context);
+
   assert.equal(sellerFetches, 1);
-  assert.equal(offers.length, 1);
-  assert.equal(offers[0]?.salePrice, 409000);
-  assert.equal(offers[0]?.totalCashPrice, 409000);
-  assert.equal(offers[0]?.verificationTrace?.resolutionMethod, 'fallback_search');
-  assert.equal(offers[0]?.verificationTrace?.comparisonAdvertisedPrice, undefined);
+  assert.equal(offer?.salePrice, 409000);
+  assert.equal(offer?.totalCashPrice, 409000);
+  assert.equal(offer?.verificationTrace?.resolutionMethod, 'fallback_search');
+  assert.equal(offer?.verificationTrace?.comparisonAdvertisedPrice, undefined);
 });
