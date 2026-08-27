@@ -151,3 +151,58 @@ test('comparison provider uses exact-model fallback when resolved seller fails d
   assert.equal(result.attempts[0]?.verification.attempted, 2, 'fallback must remain inside the provider verification budget');
   assert.equal(result.offers.some((offer) => offer.url === fallbackSellerUrl && offer.eligible), true);
 });
+
+test('comparison redirect resolution shares one provider-wide sellerExpansion budget', async () => {
+  const discovery: DiscoveryCandidate[] = Array.from({ length: 5 }, (_, index) => ({
+    providerId: 'danawa',
+    market: '다나와',
+    title: `와이드뷰 QWGE43UT1 EKWBYME78W V3 43인치 신품 패키지 ${index}`,
+    url: `https://prod.danawa.com/info/?pcode=budget-${index}`,
+    snippet: '가격비교',
+    discoveredAt: '2026-08-27T13:20:00.000Z',
+  }));
+  let redirectNetworkCalls = 0;
+
+  const provider: MarketProvider = {
+    id: 'danawa',
+    market: '다나와',
+    budget: { discovery: 5, verification: 2, sellerExpansion: 2 },
+    discover: async () => discovery,
+    identify: () => exactMatch,
+    expandSellers: async (candidate, context) => {
+      for (let index = 0; index < 2; index += 1) {
+        await context.resolveSellerRedirect?.(`${candidate.url}&bridge=${index}`);
+      }
+      return [];
+    },
+    verify: async (candidate, context) => ({
+      candidate,
+      page: await context.directPage('sellerUrl' in candidate ? candidate.sellerUrl : candidate.url),
+      identity: exactMatch,
+      retrievedAt: context.now().toISOString(),
+    }),
+    extractOffer: () => null,
+  };
+
+  await runMarketProviderCoverage({
+    providers: [provider],
+    target,
+    canonicalIdentity,
+    constraints: [],
+    publicSearch: async () => [],
+    directPage: async (url) => exactPage(url),
+    sellerRedirectResolver: async (url) => {
+      redirectNetworkCalls += 1;
+      return { originalUrl: url, hops: [url], status: 'not_redirect' };
+    },
+    now: () => new Date('2026-08-27T13:20:00.000Z'),
+    nowMs: () => 0,
+    totalDeadlineMs: 45_000,
+  });
+
+  assert.equal(
+    redirectNetworkCalls,
+    provider.budget.sellerExpansion,
+    'seller redirect network work must be capped across the whole provider, not reset for every comparison page',
+  );
+});
