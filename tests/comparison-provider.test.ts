@@ -247,3 +247,36 @@ test('comparison bridge URL is resolved to the final seller before direct verifi
   assert.equal(offers[0]?.verificationTrace?.originalSellerUrl, bridgeUrl);
   assert.equal(offers[0]?.verificationTrace?.resolvedSellerUrl, sellerUrl);
 });
+
+test('comparison bridge that does not redirect is never verified as a seller page', async () => {
+  const comparisonUrl = 'https://prod.danawa.com/info/?pcode=129';
+  const bridgeUrl = 'https://prod.danawa.com/bridge?id=seller-7';
+  let bridgePageFetches = 0;
+  const base = context(async (url) => {
+    if (url === comparisonUrl) return comparisonPage(comparisonUrl, bridgeUrl, 365400);
+    if (url === bridgeUrl) {
+      bridgePageFetches += 1;
+      return sellerPage(bridgeUrl, 365400, 0);
+    }
+    throw new Error(`unexpected URL ${url}`);
+  });
+  const ctx = {
+    ...base,
+    resolveSellerRedirect: async (url: string) => ({
+      originalUrl: url,
+      hops: [url],
+      status: 'not_redirect' as const,
+    }),
+  };
+
+  const offers = await expandAndVerifySellers(
+    danawaProvider,
+    comparisonCandidate('danawa', comparisonUrl),
+    ctx,
+    createVerificationCache<DirectPageResult>(),
+  );
+
+  assert.equal(bridgePageFetches, 0, 'comparison-domain bridge must not be fetched as a seller after not_redirect');
+  assert.deepEqual(offers, []);
+  assert.equal(rankMarketOffers(offers).bestOffers.cash, undefined);
+});
