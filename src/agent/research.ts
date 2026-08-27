@@ -75,6 +75,13 @@ export interface AgentSourceCoverage {
   evidenceCount: number;
 }
 
+export type AgentVerificationGap =
+  | 'seller_resolution_failed'
+  | 'seller_identity_mismatch'
+  | 'shipping_unknown'
+  | 'availability_unresolved'
+  | 'mandatory_fee_unknown';
+
 export interface AgentResearchResult {
   status: ResearchJobStatus;
   jobId?: string;
@@ -99,6 +106,7 @@ export interface AgentResearchResult {
   standardPriceRows?: StandardPriceRowReport[];
   presentation?: ShoppingPresentation;
   validationWarnings?: ReliabilityIssue[];
+  verificationGap?: AgentVerificationGap;
   shopping?: ShoppingResearchResult;
   relay: AgentRelaySummary;
   summary: string;
@@ -197,6 +205,72 @@ function productIdentity(job: ResearchJob): AgentProductIdentity {
   };
 }
 
+const VERIFICATION_GAP_MESSAGES: Record<AgentVerificationGap, string> = {
+  seller_identity_mismatch: '최종 판매자 페이지에서 요청한 정확한 상품·구성 일치를 확인하지 못했습니다.',
+  mandatory_fee_unknown: '필수 구매 비용이 존재하지만 금액을 확정하지 못했습니다.',
+  shipping_unknown: '최종 판매자 페이지에서 배송비를 확정하지 못했습니다.',
+  availability_unresolved: '최종 판매자 페이지에서 현재 구매 가능 여부를 확정하지 못했습니다.',
+  seller_resolution_failed: '비교 페이지에서 검증 가능한 최종 판매자 페이지를 확인하지 못했습니다.',
+};
+
+function hasReason(offer: MarketOffer, reason: string): boolean {
+  return Boolean(
+    offer.verificationTrace?.rejectionReasons.includes(reason)
+    || offer.exclusionReasons.includes(reason),
+  );
+}
+
+function dominantVerificationGap(report: ResearchJob['report']): AgentVerificationGap | undefined {
+  if (!report || report.decision !== 'INSUFFICIENT') return undefined;
+  const offers = report.offers ?? [];
+
+  if (offers.some((offer) => {
+    const verdict = offer.verificationTrace?.identityVerdict ?? offer.identityVerdict;
+    return Boolean(verdict && verdict !== 'exact')
+      || offer.verificationTrace?.rejectionReasons.some((reason) => reason.startsWith('identity:')) === true
+      || offer.exclusionReasons.some((reason) => reason.startsWith('identity:'));
+  })) return 'seller_identity_mismatch';
+
+  if (offers.some((offer) =>
+    offer.verificationTrace?.mandatoryFeeStatus === 'unknown'
+    || offer.mandatoryFeeStatus === 'unknown'
+    || hasReason(offer, 'mandatory_fee:unknown'))) return 'mandatory_fee_unknown';
+
+  if (offers.some((offer) =>
+    offer.verificationTrace?.shippingStatus === 'unknown'
+    || offer.shipping?.status === 'unknown'
+    || hasReason(offer, 'shipping:unknown'))) return 'shipping_unknown';
+
+  if (offers.some((offer) => offer.verificationTrace?.availabilityStatus === 'unknown')) {
+    return 'availability_unresolved';
+  }
+
+  if ((report.marketCoverage ?? []).some((row) =>
+    row.attempted
+    && (row.comparisonPages ?? 0) > 0
+    && (row.expandedSellers ?? 0) === 0
+    && row.found > 0)) return 'seller_resolution_failed';
+
+  return undefined;
+}
+
+function publicMarketCoverage(rows: MarketCoverage[]): MarketCoverage[] {
+  return rows.map((row) => {
+    const copy = { ...row };
+    delete copy.message;
+    return copy;
+  });
+}
+
+function gapAwareMissingInformation(
+  report: ResearchJob['report'],
+  gap: AgentVerificationGap | undefined,
+): string[] {
+  const existing = report?.missingInformation ?? ['제품 조사 결과가 충분하지 않습니다.'];
+  if (!gap) return existing;
+  return [...new Set([VERIFICATION_GAP_MESSAGES[gap], ...existing])];
+}
+
 export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {
   const intent = job.researchContext?.intent ?? classifyResearchIntent(job.request.question);
   const report = job.report;
@@ -207,6 +281,7 @@ export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {
     mode: job.relay.mode,
   };
   if (job.relay.message) relay.message = job.relay.message;
+  const verificationGap = dominantVerificationGap(report);
 
   const result: AgentResearchResult = {
     status: job.status,
@@ -221,7 +296,7 @@ export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {
     reasons: report?.reasons ?? [],
     strengths: report?.strengths ?? [],
     weaknesses: report?.weaknesses ?? [],
-    missingInformation: report?.missingInformation ?? ['제품 조사 결과가 충분하지 않습니다.'],
+    missingInformation: gapAwareMissingInformation(report, verificationGap),
     evidence: compactEvidence(job),
     sourceCoverage: sourceCoverage(job),
     errors: [...job.errors],
@@ -233,7 +308,8 @@ export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {
   if (report?.personalizedPrice) result.personalizedPrice = report.personalizedPrice;
   if (report?.offers) result.offers = report.offers;
   if (report?.bestOffers) result.bestOffers = report.bestOffers;
-  if (report?.marketCoverage) result.marketCoverage = report.marketCoverage;
+  if (report?.marketCoverage) result.marketCoverage = publicMarketCoverage(report.marketCoverage);
+  if (verificationGap) result.verificationGap = verificationGap;
   if (report?.recommendations) result.recommendations = report.recommendations;
   if (report?.manualChecks) result.manualChecks = report.manualChecks;
   if (report?.priceHistory) result.priceHistory = report.priceHistory;
