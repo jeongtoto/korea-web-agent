@@ -433,9 +433,6 @@ export async function runMarketProviderCoverage(
     ),
   );
   const sellerRedirectResolver = input.sellerRedirectResolver ?? ((url: string) => resolveSellerRedirect(url));
-  const boundedSellerRedirect = (url: string): Promise<SellerRedirectResult> => verificationSemaphore.run(
-    () => sameDomainSemaphore.run(hostname(url), () => timed(() => sellerRedirectResolver(url))),
-  );
 
   const results = await mapWithConcurrency(
     input.providers,
@@ -450,13 +447,28 @@ export async function runMarketProviderCoverage(
       const attempt = providerAttempt(provider, input.now, true);
       const evidence: EvidenceItem[] = [];
       const offers: MarketOffer[] = [];
+      let sellerRedirectAttempts = 0;
+      const providerBoundedSellerRedirect = async (url: string): Promise<SellerRedirectResult> => {
+        if (sellerRedirectAttempts >= provider.budget.sellerExpansion) {
+          return {
+            originalUrl: url,
+            hops: [],
+            status: 'failed',
+            error: 'Seller expansion budget exhausted',
+          };
+        }
+        sellerRedirectAttempts += 1;
+        return verificationSemaphore.run(
+          () => sameDomainSemaphore.run(hostname(url), () => timed(() => sellerRedirectResolver(url))),
+        );
+      };
       const context: MarketProviderContext = {
         target: input.target,
         canonicalIdentity: input.canonicalIdentity,
         constraints: input.constraints,
         publicSearch: input.publicSearch,
         directPage: cachedDirectPage,
-        resolveSellerRedirect: boundedSellerRedirect,
+        resolveSellerRedirect: providerBoundedSellerRedirect,
         now: input.now,
       };
 
