@@ -192,3 +192,117 @@ test('queued/running Action shape remains pollable without requiring presentatio
   assert.match(shaped.pollUrl, /jobId=/);
   assert.equal(shaped.presentation, undefined);
 });
+
+test('verification gap surfaces shipping_unknown with a concrete explanation', () => {
+  const value = job();
+  value.report!.offers = [verifiedOffer({
+    eligible: false,
+    shippingFee: undefined,
+    shipping: { status: 'unknown', verification: 'unverified' },
+    totalCashPrice: undefined,
+    fieldVerification: {
+      identity: 'page_verified',
+      price: 'page_verified',
+      shipping: 'unverified',
+    },
+    verificationTrace: {
+      resolutionMethod: 'redirect_resolution',
+      originalSellerUrl: 'https://search.danawa.com/bridge/1',
+      resolvedSellerUrl: 'https://seller.example.com/products/1',
+      identityVerdict: 'exact',
+      bundleVerdict: 'complete',
+      priceStatus: 'page_verified',
+      shippingStatus: 'unknown',
+      availabilityStatus: 'available',
+      mandatoryFeeStatus: 'not_applicable',
+      rejectionReasons: ['shipping:unknown'],
+      retrievedAt: '2026-08-25T07:00:00.000Z',
+    },
+    exclusionReasons: ['shipping:unknown'],
+  })];
+
+  const shaped = shapeAgentResearchJob(value) as any;
+  assert.equal(shaped.verificationGap, 'shipping_unknown');
+  assert.ok(shaped.missingInformation.some((item: string) => /배송비/.test(item)));
+});
+
+test('verification gap surfaces seller_resolution_failed when comparison pages cannot resolve sellers', () => {
+  const value = job();
+  value.report!.offers = [];
+  value.report!.marketCoverage = [{
+    providerId: 'danawa',
+    market: '다나와',
+    attempted: true,
+    found: 1,
+    verified: 0,
+    status: 'found_unverified',
+    comparisonPages: 1,
+    expandedSellers: 0,
+    exactOffers: 0,
+    eligibleSellers: 0,
+    failureKind: 'parse_failed',
+    message: 'raw fetch payload: <html>INTERNAL_SECRET_PAYLOAD</html>',
+  }];
+
+  const shaped = shapeAgentResearchJob(value) as any;
+  assert.equal(shaped.verificationGap, 'seller_resolution_failed');
+  assert.ok(shaped.missingInformation.some((item: string) => /판매자|판매처/.test(item)));
+  assert.doesNotMatch(JSON.stringify(shaped), /INTERNAL_SECRET_PAYLOAD|raw fetch payload/i);
+});
+
+test('verification gap precedence prefers identity mismatch over fee and shipping uncertainty', () => {
+  const value = job();
+  value.report!.offers = [verifiedOffer({
+    eligible: false,
+    identityVerdict: 'different',
+    mandatoryFeeStatus: 'unknown',
+    shipping: { status: 'unknown', verification: 'unverified' },
+    shippingFee: undefined,
+    totalCashPrice: undefined,
+    verificationTrace: {
+      resolutionMethod: 'fallback_search',
+      originalSellerUrl: 'https://seller.example.com/products/wrong',
+      resolvedSellerUrl: 'https://seller.example.com/products/wrong',
+      identityVerdict: 'different',
+      bundleVerdict: 'unknown',
+      priceStatus: 'page_verified',
+      shippingStatus: 'unknown',
+      availabilityStatus: 'unknown',
+      mandatoryFeeStatus: 'unknown',
+      rejectionReasons: ['identity:different', 'mandatory_fee:unknown', 'shipping:unknown'],
+      retrievedAt: '2026-08-25T07:00:00.000Z',
+    },
+    exclusionReasons: ['identity:different', 'mandatory_fee:unknown', 'shipping:unknown'],
+  })];
+
+  const shaped = shapeAgentResearchJob(value) as any;
+  assert.equal(shaped.verificationGap, 'seller_identity_mismatch');
+});
+
+test('verification gap surfaces mandatory_fee_unknown before shipping when identity is exact', () => {
+  const value = job();
+  value.report!.offers = [verifiedOffer({
+    eligible: false,
+    mandatoryFeeStatus: 'unknown',
+    shipping: { status: 'unknown', verification: 'unverified' },
+    shippingFee: undefined,
+    totalCashPrice: undefined,
+    verificationTrace: {
+      resolutionMethod: 'embedded_metadata',
+      originalSellerUrl: 'https://seller.example.com/products/1',
+      resolvedSellerUrl: 'https://seller.example.com/products/1',
+      identityVerdict: 'exact',
+      bundleVerdict: 'complete',
+      priceStatus: 'page_verified',
+      shippingStatus: 'unknown',
+      availabilityStatus: 'available',
+      mandatoryFeeStatus: 'unknown',
+      rejectionReasons: ['mandatory_fee:unknown', 'shipping:unknown'],
+      retrievedAt: '2026-08-25T07:00:00.000Z',
+    },
+    exclusionReasons: ['mandatory_fee:unknown', 'shipping:unknown'],
+  })];
+
+  const shaped = shapeAgentResearchJob(value) as any;
+  assert.equal(shaped.verificationGap, 'mandatory_fee_unknown');
+});

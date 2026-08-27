@@ -1,10 +1,12 @@
 import { candidateIdentityFromText, compareCanonicalIdentity } from '../core/identity-match.ts';
 import type { CanonicalIdentityMatch } from '../core/types.ts';
+import { discoverFallbackSellers } from './seller-fallback-discovery.ts';
 import type {
   DiscoveryCandidate,
   MarketProvider,
   MarketProviderContext,
   MarketProviderDefinition,
+  SellerCandidate,
   VerificationCandidate,
 } from './market-provider.ts';
 import {
@@ -39,6 +41,64 @@ function identifyCandidate(
   return compareCanonicalIdentity(context.canonicalIdentity, candidateIdentityFromText(text));
 }
 
+function comparisonDomainSuffix(providerId: MarketProviderDefinition['id']): string | null {
+  if (providerId === 'danawa') return 'danawa.com';
+  if (providerId === 'enuri') return 'enuri.com';
+  if (providerId === 'naver-shopping') return 'naver.com';
+  return null;
+}
+
+function isComparisonBridgeUrl(input: string, providerId: MarketProviderDefinition['id']): boolean {
+  const suffix = comparisonDomainSuffix(providerId);
+  if (!suffix) return false;
+  try {
+    const host = new URL(input).hostname.toLowerCase();
+    return host === suffix || host.endsWith(`.${suffix}`);
+  } catch {
+    return false;
+  }
+}
+
+export async function resolveComparisonBridgeCandidates(
+  candidates: SellerCandidate[],
+  context: MarketProviderContext,
+  providerId: MarketProviderDefinition['id'],
+): Promise<SellerCandidate[]> {
+  if (!context.resolveSellerRedirect) return candidates;
+  const resolved: SellerCandidate[] = [];
+  for (const candidate of candidates) {
+    if (!isComparisonBridgeUrl(candidate.sellerUrl, providerId)) {
+      resolved.push(candidate);
+      continue;
+    }
+    try {
+      const redirect = await context.resolveSellerRedirect(candidate.sellerUrl);
+      if (redirect.status === 'not_redirect') {
+        continue;
+      }
+      if (redirect.status !== 'resolved' || !redirect.resolvedUrl) continue;
+      resolved.push({
+        ...candidate,
+        sellerUrl: redirect.resolvedUrl,
+        originalSellerUrl: candidate.sellerUrl,
+        resolutionMethod: 'redirect_resolution',
+        verificationTrace: {
+          ...(candidate.verificationTrace ?? {
+            rejectionReasons: [],
+            retrievedAt: context.now().toISOString(),
+          }),
+          resolutionMethod: 'redirect_resolution',
+          originalSellerUrl: candidate.sellerUrl,
+          resolvedSellerUrl: redirect.resolvedUrl,
+        },
+      });
+    } catch {
+      // Comparison bridge resolution fails closed; an unresolved bridge is not a seller page.
+    }
+  }
+  return resolved;
+}
+
 export function createComparisonMarketProvider(
   definition: Readonly<MarketProviderDefinition>,
 ): MarketProvider {
@@ -62,7 +122,19 @@ export function createComparisonMarketProvider(
       const page = await context.directPage(candidate.url);
       const identity = directPageIdentityMatch(context.canonicalIdentity, page);
       if (identity.verdict !== 'exact') return [];
-      return sellerCandidatesFromComparisonPage(this, candidate, page);
+      const retrievedAt = context.now().toISOString();
+      const sellers = sellerCandidatesFromComparisonPage(this, candidate, page, retrievedAt);
+      const resolved = await resolveComparisonBridgeCandidates(sellers, context, definition.id);
+      if (resolved.length > 0) return resolved.slice(0, definition.budget.sellerExpansion);
+      return discoverFallbackSellers({
+        providerId: definition.id,
+        comparisonUrl: candidate.url,
+        target: context.target,
+        canonicalIdentity: context.canonicalIdentity,
+        search: context.publicSearch,
+        limit: definition.budget.sellerExpansion,
+        retrievedAt,
+      });
     },
     async verify(candidate, context) {
       const url = 'sellerUrl' in candidate ? candidate.sellerUrl : candidate.url;
@@ -85,6 +157,7 @@ export function createComparisonMarketProvider(
         discoveredBy: 'discoveredFrom' in candidate ? candidate.discoveredFrom : [definition.id],
         ...('sellerName' in candidate && candidate.sellerName ? { sellerName: candidate.sellerName } : {}),
         ...('sellerProductId' in candidate && candidate.sellerProductId ? { sellerProductId: candidate.sellerProductId } : {}),
+        ...('verificationTrace' in candidate && candidate.verificationTrace ? { verificationTrace: candidate.verificationTrace } : {}),
       });
     },
   };

@@ -164,3 +164,119 @@ test('comparison page with non-exact canonical identity does not expand downstre
   assert.equal(sellerFetches, 0);
   assert.deepEqual(offers, []);
 });
+
+test('embedded-only Danawa seller enters downstream exact seller verification', async () => {
+  const comparisonUrl = 'https://prod.danawa.com/info/?pcode=127';
+  const sellerUrl = 'https://www.11st.co.kr/products/5?option=V3';
+  let sellerFetches = 0;
+  const ctx = context(async (url) => {
+    if (url.includes('danawa.com')) {
+      return {
+        url: comparisonUrl,
+        title: '와이드뷰 QWGE43UT1 EKWBYME78W V3 43인치 신품 패키지 가격비교',
+        facts: { name: 'QWGE43UT1 EKWBYME78W V3 43인치 신품 패키지', model: 'QWGE43UT1' },
+        sellerLinks: [],
+        embeddedSellerRecords: [{
+          url: sellerUrl,
+          sellerName: '판매자B',
+          productId: 'seller-5',
+          advertisedPrice: 409000,
+        }],
+        evidence: [],
+      };
+    }
+    sellerFetches += 1;
+    return sellerPage(sellerUrl, 409000, 0);
+  });
+
+  const offers = await expandAndVerifySellers(
+    danawaProvider,
+    comparisonCandidate('danawa', comparisonUrl),
+    ctx,
+    createVerificationCache<DirectPageResult>(),
+  );
+
+  assert.equal(sellerFetches, 1);
+  assert.equal(offers.length, 1);
+  assert.equal(offers[0]?.salePrice, 409000);
+  assert.equal(offers[0]?.totalCashPrice, 409000);
+  assert.equal(offers[0]?.verificationTrace?.resolutionMethod, 'embedded_metadata');
+  assert.equal(offers[0]?.verificationTrace?.comparisonAdvertisedPrice, 409000);
+});
+
+test('comparison bridge URL is resolved to the final seller before direct verification', async () => {
+  const comparisonUrl = 'https://prod.danawa.com/info/?pcode=128';
+  const bridgeUrl = 'https://prod.danawa.com/bridge?id=seller-6';
+  const sellerUrl = 'https://www.11st.co.kr/products/6?option=V3';
+  let bridgePageFetches = 0;
+  let sellerPageFetches = 0;
+  const base = context(async (url) => {
+    if (url === comparisonUrl) return comparisonPage(comparisonUrl, bridgeUrl, 399000);
+    if (url === bridgeUrl) {
+      bridgePageFetches += 1;
+      return { url, title: 'bridge', evidence: [] };
+    }
+    if (url === sellerUrl) {
+      sellerPageFetches += 1;
+      return sellerPage(sellerUrl, 399000, 0);
+    }
+    throw new Error(`unexpected URL ${url}`);
+  });
+  const ctx = {
+    ...base,
+    resolveSellerRedirect: async (url: string) => ({
+      originalUrl: url,
+      resolvedUrl: sellerUrl,
+      hops: [url, sellerUrl],
+      status: 'resolved' as const,
+    }),
+  };
+
+  const offers = await expandAndVerifySellers(
+    danawaProvider,
+    comparisonCandidate('danawa', comparisonUrl),
+    ctx,
+    createVerificationCache<DirectPageResult>(),
+  );
+
+  assert.equal(bridgePageFetches, 0);
+  assert.equal(sellerPageFetches, 1);
+  assert.equal(offers.length, 1);
+  assert.equal(offers[0]?.url, sellerUrl);
+  assert.equal(offers[0]?.verificationTrace?.resolutionMethod, 'redirect_resolution');
+  assert.equal(offers[0]?.verificationTrace?.originalSellerUrl, bridgeUrl);
+  assert.equal(offers[0]?.verificationTrace?.resolvedSellerUrl, sellerUrl);
+});
+
+test('comparison bridge that does not redirect is never verified as a seller page', async () => {
+  const comparisonUrl = 'https://prod.danawa.com/info/?pcode=129';
+  const bridgeUrl = 'https://prod.danawa.com/bridge?id=seller-7';
+  let bridgePageFetches = 0;
+  const base = context(async (url) => {
+    if (url === comparisonUrl) return comparisonPage(comparisonUrl, bridgeUrl, 365400);
+    if (url === bridgeUrl) {
+      bridgePageFetches += 1;
+      return sellerPage(bridgeUrl, 365400, 0);
+    }
+    throw new Error(`unexpected URL ${url}`);
+  });
+  const ctx = {
+    ...base,
+    resolveSellerRedirect: async (url: string) => ({
+      originalUrl: url,
+      hops: [url],
+      status: 'not_redirect' as const,
+    }),
+  };
+
+  const offers = await expandAndVerifySellers(
+    danawaProvider,
+    comparisonCandidate('danawa', comparisonUrl),
+    ctx,
+    createVerificationCache<DirectPageResult>(),
+  );
+
+  assert.equal(bridgePageFetches, 0, 'comparison-domain bridge must not be fetched as a seller after not_redirect');
+  assert.deepEqual(offers, []);
+  assert.equal(rankMarketOffers(offers).bestOffers.cash, undefined);
+});

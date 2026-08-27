@@ -36,6 +36,7 @@ import type {
   VerificationCandidate,
 } from '../providers/market-provider.ts';
 import { deduplicateSellerOffers } from '../providers/offer-dedupe.ts';
+import { resolveSellerRedirect, type SellerRedirectResult } from '../providers/seller-redirect.ts';
 import { createVerificationCache } from '../providers/verification-cache.ts';
 import type { SourceQuery } from '../providers/source-plan.ts';
 
@@ -310,6 +311,7 @@ export interface MarketProviderCoverageInput {
   totalDeadlineMs?: number;
   operationTimeoutMs?: number;
   deadlineRunner?: DeadlineRunner;
+  sellerRedirectResolver?: (url: string) => Promise<SellerRedirectResult>;
   legacyFallback?: (provider: MarketProvider) => Promise<ProviderPipelineResult | null>;
 }
 
@@ -430,6 +432,10 @@ export async function runMarketProviderCoverage(
       () => sameDomainSemaphore.run(hostname(url), () => timed(() => input.directPage(url))),
     ),
   );
+  const sellerRedirectResolver = input.sellerRedirectResolver ?? ((url: string) => resolveSellerRedirect(url));
+  const boundedSellerRedirect = (url: string): Promise<SellerRedirectResult> => verificationSemaphore.run(
+    () => sameDomainSemaphore.run(hostname(url), () => timed(() => sellerRedirectResolver(url))),
+  );
 
   const results = await mapWithConcurrency(
     input.providers,
@@ -450,6 +456,7 @@ export async function runMarketProviderCoverage(
         constraints: input.constraints,
         publicSearch: input.publicSearch,
         directPage: cachedDirectPage,
+        resolveSellerRedirect: boundedSellerRedirect,
         now: input.now,
       };
 

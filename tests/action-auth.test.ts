@@ -125,12 +125,22 @@ test('terminal Action schema exposes validated reliability and presentation fiel
   for (const field of [
     'canonicalIdentity',
     'validationWarnings',
+    'verificationGap',
     'presentation',
     'identityVerdict',
     'constraintStatus',
     'fieldVerification',
   ]) {
     assert.match(schema, new RegExp(`\\b${field}:`), `Action schema must expose ${field}`);
+  }
+  for (const gap of [
+    'seller_resolution_failed',
+    'seller_identity_mismatch',
+    'shipping_unknown',
+    'availability_unresolved',
+    'mandatory_fee_unknown',
+  ]) {
+    assert.match(schema, new RegExp(`\\b${gap}\\b`), `Action schema must expose verification gap ${gap}`);
   }
   assert.match(schema, /operationId:\s*startProductResearch/);
   assert.match(schema, /operationId:\s*getProductResearchResult/);

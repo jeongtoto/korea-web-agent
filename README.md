@@ -1,4 +1,4 @@
-# Korea Web Agent v0.7.3
+# Korea Web Agent v0.7.4
 
 Korea Web Agent is a read-only Korean product-research backend designed to be called from a dedicated Custom GPT. The primary experience is now natural-language product research inside ChatGPT; the existing PWA remains available as a diagnostic/manual testing surface.
 
@@ -9,6 +9,15 @@ Example:
 ```
 
 The agent resolves an exact product or a recommendation category, gathers attributable public evidence, normalizes multi-market offers, and conditionally asks a locally authenticated PC browser to verify up to eight difficult commerce pages. It separates cash, owned-card, public conditional, account-personalized, points-adjusted, refurb/open-box, and used prices and returns a conservative `BUY / WAIT / SKIP / INSUFFICIENT` result plus Best 3 recommendations when appropriate.
+
+## v0.7.4 Seller Verification Graduation
+
+- Comparison providers resolve downstream sellers through deterministic static links, embedded seller metadata, bounded public redirects, then exact-model fallback discovery only when seller resolution still yields no target.
+- Comparison/search prices remain indicative discovery data. Decisive public economics come only from an exact downstream seller page that verifies product identity, current seller price, shipping, availability, and required bundle state.
+- Seller-page price overrides a cheaper comparison-advertised value. Known mandatory purchase fees are included in `totalCashPrice`; an unknown mandatory fee blocks decisive eligibility.
+- `verificationGap` exposes one dominant terminal reason for `INSUFFICIENT`: `seller_identity_mismatch`, `mandatory_fee_unknown`, `shipping_unknown`, `availability_unresolved`, or `seller_resolution_failed`. Raw provider fetch messages are not surfaced through public market coverage.
+- Unknown shipping still never defaults to zero, search metadata still cannot win public cash ranking, and Relay remains personalization-only without mutating public result order, score, or price history.
+- Golden G1-G13 seller-graduation cases and the exact WideView `QWGE43UT1 + EKWBYME78W(V3)` regression benchmark protect the release contract.
 
 ## v0.7.3 Recommendation Output Contract
 

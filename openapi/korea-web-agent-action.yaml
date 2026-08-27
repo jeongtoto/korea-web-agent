@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Korea Web Agent
-  version: 0.7.3
+  version: 0.7.4
   description: Cloud-first read-only Korean shopping research with resilient multi-market evidence, price history, payment conditions, and optional authenticated PC-browser enrichment.
 servers:
   - url: https://korea-web-agent.netlify.app
@@ -616,6 +616,9 @@ components:
         validationWarnings:
           type: array
           items: { $ref: '#/components/schemas/ReliabilityIssue' }
+        verificationGap:
+          type: string
+          enum: [seller_resolution_failed, seller_identity_mismatch, shipping_unknown, availability_unresolved, mandatory_fee_unknown]
         presentation:
           $ref: '#/components/schemas/ShoppingPresentation'
         errors:

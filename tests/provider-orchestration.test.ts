@@ -318,6 +318,50 @@ test('comparison providers share one request-scoped seller verification and econ
   assert.deepEqual(new Set(downstream[0]?.sellerInfo?.discoveredBy), new Set(['danawa', 'enuri']));
 });
 
+test('production provider coverage injects a bounded seller redirect resolver into comparison expansion', async () => {
+  const bridgeUrl = 'https://prod.danawa.com/bridge?id=777';
+  const sellerUrl = 'https://seller.example.com/products/777';
+  let resolverCalls = 0;
+  let sellerFetches = 0;
+  const provider = fakeProvider({
+    id: 'danawa',
+    market: '다나와',
+    discoveryUrls: ['https://prod.danawa.com/info/?pcode=777'],
+    sellerExpansionBudget: 1,
+    verificationBudget: 1,
+    expandSellers: async (_candidate, context) => {
+      if (!context.resolveSellerRedirect) return [];
+      const resolved = await context.resolveSellerRedirect(bridgeUrl);
+      if (resolved.status !== 'resolved' || !resolved.resolvedUrl) return [];
+      return [{
+        providerId: 'danawa',
+        discoveredFrom: ['danawa'],
+        comparisonUrl: 'https://prod.danawa.com/info/?pcode=777',
+        sellerUrl: resolved.resolvedUrl,
+        resolutionMethod: 'redirect_resolution',
+      }];
+    },
+    extractOffer: (verified) => decisiveOffer(verified.page.url, '판매자몰', ['danawa']),
+  });
+
+  const result = await run([provider], {
+    sellerRedirectResolver: async (url: string) => {
+      resolverCalls += 1;
+      assert.equal(url, bridgeUrl);
+      return { originalUrl: url, resolvedUrl: sellerUrl, hops: [url, sellerUrl], status: 'resolved' as const };
+    },
+    directPage: async (url) => {
+      if (url === sellerUrl) sellerFetches += 1;
+      return directPage(url);
+    },
+  } as never);
+
+  assert.equal(resolverCalls, 1);
+  assert.equal(sellerFetches, 1);
+  assert.equal(result.attempts[0]?.status, 'verified');
+  assert.equal(result.offers.some((offer) => offer.url === sellerUrl && offer.eligible), true);
+});
+
 test('unexpected v2 adapter failure may use the legacy gated fallback without failing the provider', async () => {
   const broken = fakeProvider({
     id: 'ssg',

@@ -1,5 +1,6 @@
 import { candidateIdentityFromText, compareCanonicalIdentity } from '../../core/identity-match.ts';
 import type { CanonicalIdentityMatch } from '../../core/types.ts';
+import { resolveComparisonBridgeCandidates } from '../comparison-provider.ts';
 import type {
   DiscoveryCandidate,
   MarketProvider,
@@ -7,6 +8,7 @@ import type {
   VerificationCandidate,
 } from '../market-provider.ts';
 import { providerDefinitionById } from '../provider-registry.ts';
+import { discoverFallbackSellers } from '../seller-fallback-discovery.ts';
 import {
   directPageIdentityMatch,
   sellerCandidatesFromComparisonPage,
@@ -83,7 +85,19 @@ export const naverShoppingProvider: MarketProvider = {
     const page = await context.directPage(candidate.url);
     const identity = directPageIdentityMatch(context.canonicalIdentity, page);
     if (identity.verdict !== 'exact') return [];
-    return sellerCandidatesFromComparisonPage(this, candidate, page);
+    const retrievedAt = context.now().toISOString();
+    const sellers = sellerCandidatesFromComparisonPage(this, candidate, page, retrievedAt);
+    const resolved = await resolveComparisonBridgeCandidates(sellers, context, definition.id);
+    if (resolved.length > 0) return resolved.slice(0, definition.budget.sellerExpansion);
+    return discoverFallbackSellers({
+      providerId: definition.id,
+      comparisonUrl: candidate.url,
+      target: context.target,
+      canonicalIdentity: context.canonicalIdentity,
+      search: context.publicSearch,
+      limit: definition.budget.sellerExpansion,
+      retrievedAt,
+    });
   },
   async verify(candidate, context) {
     const page = await context.directPage(candidateUrl(candidate));
@@ -105,6 +119,7 @@ export const naverShoppingProvider: MarketProvider = {
       discoveredBy: discoveredBy(candidate),
       ...('sellerName' in candidate && candidate.sellerName ? { sellerName: candidate.sellerName } : {}),
       ...('sellerProductId' in candidate && candidate.sellerProductId ? { sellerProductId: candidate.sellerProductId } : {}),
+      ...('verificationTrace' in candidate && candidate.verificationTrace ? { verificationTrace: candidate.verificationTrace } : {}),
     });
   },
 };
