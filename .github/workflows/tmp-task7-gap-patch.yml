@@ -14,112 +14,42 @@ jobs:
           ref: feature/v0.7.4-seller-verification-graduation
       - name: Patch agent output shaping once
         shell: bash
+        env:
+          HELPER_B64: Y29uc3QgVkVSSUZJQ0FUSU9OX0dBUF9NRVNTQUdFUzogUmVjb3JkPEFnZW50VmVyaWZpY2F0aW9uR2FwLCBzdHJpbmc+ID0gewogIHNlbGxlcl9pZGVudGl0eV9taXNtYXRjaDogJ+y1nOyihSDtjJDrp6TsnpAg7Y6Y7J207KeA7JeQ7IScIOyalOyyre2VnCDsoJXtmZXtlZwg7IOB7ZKIwrfqtazshLEg7J287LmY66W8IO2ZleyduO2VmOyngCDrqrvtlojsirXri4jri6QuJywKICBtYW5kYXRvcnlfZmVlX3Vua25vd246ICftlYTsiJgg6rWs66ekIOu5hOyaqeydtCDsobTsnqztlZjsp4Drp4wg6riI7JWh7J2EIO2Zleygle2VmOyngCDrqrvtlojsirXri4jri6QuJywKICBzaGlwcGluZ191bmtub3duOiAn7LWc7KKFIO2MkOunpOyekCDtjpjsnbTsp4Dsl5DshJwg67Cw7Iah67mE66W8IO2Zleygle2VmOyngCDrqrvtlojsirXri4jri6QuJywKICBhdmFpbGFiaWxpdHlfdW5yZXNvbHZlZDogJ+y1nOyihSDtjJDrp6TsnpAg7Y6Y7J207KeA7JeQ7IScIO2YhOyerCDqtazrp6Qg6rCA64qlIOyXrOu2gOulvCDtmZXsoJXtlZjsp4Ag66q77ZaI7Iq164uI64ukLicsCiAgc2VsbGVyX3Jlc29sdXRpb25fZmFpbGVkOiAn67mE6rWQIO2OmOydtOyngOyXkOyEnCDqsoDspp0g6rCA64ql7ZWcIOy1nOyihSDtjJDrp6TsnpAg7Y6Y7J207KeA66W8IO2ZleyduO2VmOyngCDrqrvtlojsirXri4jri6QuJywKfTsKCmZ1bmN0aW9uIGhhc1JlYXNvbihvZmZlcjogTWFya2V0T2ZmZXIsIHJlYXNvbjogc3RyaW5nKTogYm9vbGVhbiB7CiAgcmV0dXJuIEJvb2xlYW4oCiAgICBvZmZlci52ZXJpZmljYXRpb25UcmFjZT8ucmVqZWN0aW9uUmVhc29ucy5pbmNsdWRlcyhyZWFzb24pCiAgICB8fCBvZmZlci5leGNsdXNpb25SZWFzb25zLmluY2x1ZGVzKHJlYXNvbiksCiAgKTsKfQoKZnVuY3Rpb24gZG9taW5hbnRWZXJpZmljYXRpb25HYXAocmVwb3J0OiBSZXNlYXJjaEpvYlsncmVwb3J0J10pOiBBZ2VudFZlcmlmaWNhdGlvbkdhcCB8IHVuZGVmaW5lZCB7CiAgaWYgKCFyZXBvcnQgfHwgcmVwb3J0LmRlY2lzaW9uICE9PSAnSU5TVUZGSUNJRU5UJykgcmV0dXJuIHVuZGVmaW5lZDsKICBjb25zdCBvZmZlcnMgPSByZXBvcnQub2ZmZXJzID8/IFtdOwoKICBpZiAob2ZmZXJzLnNvbWUoKG9mZmVyKSA9PiB7CiAgICBjb25zdCB2ZXJkaWN0ID0gb2ZmZXIudmVyaWZpY2F0aW9uVHJhY2U/LmlkZW50aXR5VmVyZGljdCA/PyBvZmZlci5pZGVudGl0eVZlcmRpY3Q7CiAgICByZXR1cm4gQm9vbGVhbih2ZXJkaWN0ICYmIHZlcmRpY3QgIT09ICdleGFjdCcpCiAgICAgIHx8IG9mZmVyLnZlcmlmaWNhdGlvblRyYWNlPy5yZWplY3Rpb25SZWFzb25zLnNvbWUoKHJlYXNvbikgPT4gcmVhc29uLnN0YXJ0c1dpdGgoJ2lkZW50aXR5OicpKSA9PT0gdHJ1ZQogICAgICB8fCBvZmZlci5leGNsdXNpb25SZWFzb25zLnNvbWUoKHJlYXNvbikgPT4gcmVhc29uLnN0YXJ0c1dpdGgoJ2lkZW50aXR5OicpKTsKICB9KSkgcmV0dXJuICdzZWxsZXJfaWRlbnRpdHlfbWlzbWF0Y2gnOwoKICBpZiAob2ZmZXJzLnNvbWUoKG9mZmVyKSA9PgogICAgb2ZmZXIudmVyaWZpY2F0aW9uVHJhY2U/Lm1hbmRhdG9yeUZlZVN0YXR1cyA9PT0gJ3Vua25vd24nCiAgICB8fCBvZmZlci5tYW5kYXRvcnlGZWVTdGF0dXMgPT09ICd1bmtub3duJwogICAgfHwgaGFzUmVhc29uKG9mZmVyLCAnbWFuZGF0b3J5X2ZlZTp1bmtub3duJykpKSByZXR1cm4gJ21hbmRhdG9yeV9mZWVfdW5rbm93bic7CgogIGlmIChvZmZlcnMuc29tZSgob2ZmZXIpID0+CiAgICBvZmZlci52ZXJpZmljYXRpb25UcmFjZT8uc2hpcHBpbmdTdGF0dXMgPT09ICd1bmtub3duJwogICAgfHwgb2ZmZXIuc2hpcHBpbmc/LnN0YXR1cyA9PT0gJ3Vua25vd24nCiAgICB8fCBoYXNSZWFzb24ob2ZmZXIsICdzaGlwcGluZzp1bmtub3duJykpKSByZXR1cm4gJ3NoaXBwaW5nX3Vua25vd24nOwoKICBpZiAob2ZmZXJzLnNvbWUoKG9mZmVyKSA9PiBvZmZlci52ZXJpZmljYXRpb25UcmFjZT8uYXZhaWxhYmlsaXR5U3RhdHVzID09PSAndW5rbm93bicpKSB7CiAgICByZXR1cm4gJ2F2YWlsYWJpbGl0eV91bnJlc29sdmVkJzsKICB9CgogIGlmICgocmVwb3J0Lm1hcmtldENvdmVyYWdlID8/IFtdKS5zb21lKChyb3cpID0+CiAgICByb3cuYXR0ZW1wdGVkCiAgICAmJiAocm93LmNvbXBhcmlzb25QYWdlcyA/PyAwKSA+IDAKICAgICYmIChyb3cuZXhwYW5kZWRTZWxsZXJzID8/IDApID09PSAwCiAgICAmJiByb3cuZm91bmQgPiAwKSkgcmV0dXJuICdzZWxsZXJfcmVzb2x1dGlvbl9mYWlsZWQnOwoKICByZXR1cm4gdW5kZWZpbmVkOwp9CgpmdW5jdGlvbiBwdWJsaWNNYXJrZXRDb3ZlcmFnZShyb3dzOiBNYXJrZXRDb3ZlcmFnZVtdKTogTWFya2V0Q292ZXJhZ2VbXSB7CiAgcmV0dXJuIHJvd3MubWFwKChyb3cpID0+IHsKICAgIGNvbnN0IGNvcHkgPSB7IC4uLnJvdyB9OwogICAgZGVsZXRlIGNvcHkubWVzc2FnZTsKICAgIHJldHVybiBjb3B5OwogIH0pOwp9CgpmdW5jdGlvbiBnYXBBd2FyZU1pc3NpbmdJbmZvcm1hdGlvbigKICByZXBvcnQ6IFJlc2VhcmNoSm9iWydyZXBvcnQnXSwKICBnYXA6IEFnZW50VmVyaWZpY2F0aW9uR2FwIHwgdW5kZWZpbmVkLAopOiBzdHJpbmdbXSB7CiAgY29uc3QgZXhpc3RpbmcgPSByZXBvcnQ/Lm1pc3NpbmdJbmZvcm1hdGlvbiA/PyBbJ+ygnO2SiCDsobDsgqwg6rKw6rO86rCAIOy2qeu2hO2VmOyngCDslYrsirXri4jri6QuJ107CiAgaWYgKCFnYXApIHJldHVybiBleGlzdGluZzsKICByZXR1cm4gWy4uLm5ldyBTZXQoW1ZFUklGSUNBVElPTl9HQVBfTUVTU0FHRVNbZ2FwXSwgLi4uZXhpc3RpbmddKV07Cn0KCg==
         run: |
           if grep -q "export type AgentVerificationGap" src/agent/research.ts; then
             echo "Task 7 patch already applied"
             exit 0
           fi
           python3 - <<'PY'
+          import base64, os
           from pathlib import Path
           p = Path('src/agent/research.ts')
           s = p.read_text()
-
-          old = """export interface AgentSourceCoverage {\n  attempted: number;\n  succeeded: number;\n  failed: number;\n  evidenceCount: number;\n}\n\nexport interface AgentResearchResult {"""
-          new = """export interface AgentSourceCoverage {\n  attempted: number;\n  succeeded: number;\n  failed: number;\n  evidenceCount: number;\n}\n\nexport type AgentVerificationGap =\n  | 'seller_resolution_failed'\n  | 'seller_identity_mismatch'\n  | 'shipping_unknown'\n  | 'availability_unresolved'\n  | 'mandatory_fee_unknown';\n\nexport interface AgentResearchResult {"""
+          old = "export interface AgentSourceCoverage {\n  attempted: number;\n  succeeded: number;\n  failed: number;\n  evidenceCount: number;\n}\n\nexport interface AgentResearchResult {"
+          new = "export interface AgentSourceCoverage {\n  attempted: number;\n  succeeded: number;\n  failed: number;\n  evidenceCount: number;\n}\n\nexport type AgentVerificationGap =\n  | 'seller_resolution_failed'\n  | 'seller_identity_mismatch'\n  | 'shipping_unknown'\n  | 'availability_unresolved'\n  | 'mandatory_fee_unknown';\n\nexport interface AgentResearchResult {"
           assert old in s
           s = s.replace(old, new, 1)
-
-          old = """  validationWarnings?: ReliabilityIssue[];\n  shopping?: ShoppingResearchResult;"""
-          new = """  validationWarnings?: ReliabilityIssue[];\n  verificationGap?: AgentVerificationGap;\n  shopping?: ShoppingResearchResult;"""
+          old = "  validationWarnings?: ReliabilityIssue[];\n  shopping?: ShoppingResearchResult;"
+          new = "  validationWarnings?: ReliabilityIssue[];\n  verificationGap?: AgentVerificationGap;\n  shopping?: ShoppingResearchResult;"
           assert old in s
           s = s.replace(old, new, 1)
-
           marker = "export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {"
-          helper = r'''const VERIFICATION_GAP_MESSAGES: Record<AgentVerificationGap, string> = {
-  seller_identity_mismatch: '최종 판매자 페이지에서 요청한 정확한 상품·구성 일치를 확인하지 못했습니다.',
-  mandatory_fee_unknown: '필수 구매 비용이 존재하지만 금액을 확정하지 못했습니다.',
-  shipping_unknown: '최종 판매자 페이지에서 배송비를 확정하지 못했습니다.',
-  availability_unresolved: '최종 판매자 페이지에서 현재 구매 가능 여부를 확정하지 못했습니다.',
-  seller_resolution_failed: '비교 페이지에서 검증 가능한 최종 판매자 페이지를 확인하지 못했습니다.',
-};
-
-function hasReason(offer: MarketOffer, reason: string): boolean {
-  return Boolean(
-    offer.verificationTrace?.rejectionReasons.includes(reason)
-    || offer.exclusionReasons.includes(reason),
-  );
-}
-
-function dominantVerificationGap(report: ResearchJob['report']): AgentVerificationGap | undefined {
-  if (!report || report.decision !== 'INSUFFICIENT') return undefined;
-  const offers = report.offers ?? [];
-
-  if (offers.some((offer) => {
-    const verdict = offer.verificationTrace?.identityVerdict ?? offer.identityVerdict;
-    return Boolean(verdict && verdict !== 'exact')
-      || offer.verificationTrace?.rejectionReasons.some((reason) => reason.startsWith('identity:')) === true
-      || offer.exclusionReasons.some((reason) => reason.startsWith('identity:'));
-  })) return 'seller_identity_mismatch';
-
-  if (offers.some((offer) =>
-    offer.verificationTrace?.mandatoryFeeStatus === 'unknown'
-    || offer.mandatoryFeeStatus === 'unknown'
-    || hasReason(offer, 'mandatory_fee:unknown'))) return 'mandatory_fee_unknown';
-
-  if (offers.some((offer) =>
-    offer.verificationTrace?.shippingStatus === 'unknown'
-    || offer.shipping?.status === 'unknown'
-    || hasReason(offer, 'shipping:unknown'))) return 'shipping_unknown';
-
-  if (offers.some((offer) => offer.verificationTrace?.availabilityStatus === 'unknown')) {
-    return 'availability_unresolved';
-  }
-
-  if ((report.marketCoverage ?? []).some((row) =>
-    row.attempted
-    && (row.comparisonPages ?? 0) > 0
-    && (row.expandedSellers ?? 0) === 0
-    && row.found > 0)) return 'seller_resolution_failed';
-
-  return undefined;
-}
-
-function publicMarketCoverage(rows: MarketCoverage[]): MarketCoverage[] {
-  return rows.map((row) => {
-    const copy = { ...row };
-    delete copy.message;
-    return copy;
-  });
-}
-
-function gapAwareMissingInformation(
-  report: ResearchJob['report'],
-  gap: AgentVerificationGap | undefined,
-): string[] {
-  const existing = report?.missingInformation ?? ['제품 조사 결과가 충분하지 않습니다.'];
-  if (!gap) return existing;
-  return [...new Set([VERIFICATION_GAP_MESSAGES[gap], ...existing])];
-}
-
-'''
+          helper = base64.b64decode(os.environ['HELPER_B64']).decode('utf-8')
           assert marker in s
           s = s.replace(marker, helper + marker, 1)
-
-          old = """  if (job.relay.message) relay.message = job.relay.message;\n\n  const result: AgentResearchResult = {"""
-          new = """  if (job.relay.message) relay.message = job.relay.message;\n  const verificationGap = dominantVerificationGap(report);\n\n  const result: AgentResearchResult = {"""
+          old = "  if (job.relay.message) relay.message = job.relay.message;\n\n  const result: AgentResearchResult = {"
+          new = "  if (job.relay.message) relay.message = job.relay.message;\n  const verificationGap = dominantVerificationGap(report);\n\n  const result: AgentResearchResult = {"
           assert old in s
           s = s.replace(old, new, 1)
-
           old = "    missingInformation: report?.missingInformation ?? ['제품 조사 결과가 충분하지 않습니다.'],"
           new = "    missingInformation: gapAwareMissingInformation(report, verificationGap),"
           assert old in s
           s = s.replace(old, new, 1)
-
-          old = """  if (report?.bestOffers) result.bestOffers = report.bestOffers;\n  if (report?.marketCoverage) result.marketCoverage = report.marketCoverage;"""
-          new = """  if (report?.bestOffers) result.bestOffers = report.bestOffers;\n  if (report?.marketCoverage) result.marketCoverage = publicMarketCoverage(report.marketCoverage);\n  if (verificationGap) result.verificationGap = verificationGap;"""
+          old = "  if (report?.bestOffers) result.bestOffers = report.bestOffers;\n  if (report?.marketCoverage) result.marketCoverage = report.marketCoverage;"
+          new = "  if (report?.bestOffers) result.bestOffers = report.bestOffers;\n  if (report?.marketCoverage) result.marketCoverage = publicMarketCoverage(report.marketCoverage);\n  if (verificationGap) result.verificationGap = verificationGap;"
           assert old in s
           s = s.replace(old, new, 1)
-
           p.write_text(s)
           PY
           git config user.name "github-actions[bot]"
