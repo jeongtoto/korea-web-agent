@@ -125,7 +125,9 @@ export function createComparisonMarketProvider(
       const retrievedAt = context.now().toISOString();
       const sellers = sellerCandidatesFromComparisonPage(this, candidate, page, retrievedAt);
       const resolved = await resolveComparisonBridgeCandidates(sellers, context, definition.id);
-      if (resolved.length > 0) return resolved.slice(0, definition.budget.sellerExpansion);
+      return resolved.slice(0, definition.budget.sellerExpansion);
+    },
+    async fallbackSellers(candidate, context) {
       return discoverFallbackSellers({
         providerId: definition.id,
         comparisonUrl: candidate.url,
@@ -133,7 +135,7 @@ export function createComparisonMarketProvider(
         canonicalIdentity: context.canonicalIdentity,
         search: context.publicSearch,
         limit: definition.budget.sellerExpansion,
-        retrievedAt,
+        retrievedAt: context.now().toISOString(),
       });
     },
     async verify(candidate, context) {
