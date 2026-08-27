@@ -1,25 +1,24 @@
 name: temporary task7 gap patch
 
-on:
-  push:
-    branches:
-      - feature/v0.7.4-seller-verification-graduation
-    paths:
-      - .github/workflows/tmp-task7-gap-patch.yml
+on: push
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: contains(github.event.head_commit.message, 'temporary task7 patch workflow')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feature/v0.7.4-seller-verification-graduation
-      - name: Patch agent output shaping
+      - name: Patch agent output shaping once
+        shell: bash
         run: |
+          if grep -q "export type AgentVerificationGap" src/agent/research.ts; then
+            echo "Task 7 patch already applied"
+            exit 0
+          fi
           python3 - <<'PY'
           from pathlib import Path
           p = Path('src/agent/research.ts')
@@ -35,7 +34,7 @@ jobs:
           assert old in s
           s = s.replace(old, new, 1)
 
-          marker = """export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {"""
+          marker = "export function shapeAgentResearchJob(job: ResearchJob): AgentResearchResult {"
           helper = r'''const VERIFICATION_GAP_MESSAGES: Record<AgentVerificationGap, string> = {
   seller_identity_mismatch: '최종 판매자 페이지에서 요청한 정확한 상품·구성 일치를 확인하지 못했습니다.',
   mandatory_fee_unknown: '필수 구매 비용이 존재하지만 금액을 확정하지 못했습니다.',
@@ -111,8 +110,8 @@ function gapAwareMissingInformation(
           assert old in s
           s = s.replace(old, new, 1)
 
-          old = """    missingInformation: report?.missingInformation ?? ['제품 조사 결과가 충분하지 않습니다.'],"""
-          new = """    missingInformation: gapAwareMissingInformation(report, verificationGap),"""
+          old = "    missingInformation: report?.missingInformation ?? ['제품 조사 결과가 충분하지 않습니다.'],"
+          new = "    missingInformation: gapAwareMissingInformation(report, verificationGap),"
           assert old in s
           s = s.replace(old, new, 1)
 
@@ -123,10 +122,12 @@ function gapAwareMissingInformation(
 
           p.write_text(s)
           PY
-      - name: Commit patch
-        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/agent/research.ts
+          if git diff --cached --quiet; then
+            echo "No source change"
+            exit 0
+          fi
           git commit -m "feat: expose seller verification gaps"
           git push origin HEAD:feature/v0.7.4-seller-verification-graduation
