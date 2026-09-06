@@ -91,3 +91,49 @@ test('page title cannot lend exact variant identity to a price-scoped generic se
   assert.equal(offer.fieldVerification?.price, 'unverified');
   assert.ok(offer.exclusionReasons.includes('identity:uncertain'));
 });
+
+test('exact structured variant keeps page-verified seller economics', () => {
+  const page: DirectPageResult = {
+    url: 'https://item.gmarket.co.kr/Item?goodsCode=4716619824&option=standard-white',
+    product: {
+      name: '래안텍 ARKCELL 27QAF80CE EVO 화이트 일반 IPS QHD 200Hz 새상품',
+      brand: '래안텍',
+      sku: '27QAF80CE',
+      model: '27QAF80CE',
+      offers: {
+        price: 189000,
+        currency: 'KRW',
+        availability: 'InStock',
+        shippingFee: 0,
+      },
+    },
+    facts: {
+      name: '래안텍 ARKCELL 27QAF80CE EVO 화이트 일반 IPS QHD 200Hz 새상품',
+      brand: '래안텍',
+      sku: '27QAF80CE',
+      model: '27QAF80CE',
+      price: 189000,
+      availability: 'InStock',
+      shippingFee: 0,
+    },
+    evidence: [],
+  };
+
+  const offer = verifiedSellerOfferFromPage({
+    page,
+    target,
+    canonicalIdentity: canonical,
+    constraints: [],
+    retrievedAt: '2026-09-06T03:30:00.000Z',
+    discoveredBy: ['gmarket'],
+    sellerName: '래안텍',
+    sellerProductId: '4716619824:standard-white',
+  });
+
+  assert.ok(offer);
+  assert.equal(offer.identityVerdict, 'exact');
+  assert.equal(offer.eligible, true);
+  assert.equal(offer.salePrice, 189000);
+  assert.equal(offer.totalCashPrice, 189000);
+  assert.equal(offer.fieldVerification?.price, 'page_verified');
+});
