@@ -98,13 +98,7 @@ test('direct exact seller page preserves identity, price, shipping and decisive 
 });
 
 test('exact page title alone cannot graduate a generic price-scoped structured product', () => {
-  const offer = verify(titleOnlyExactPage());
-
-  assert.ok(offer);
-  assert.equal(offer.identityVerdict, 'uncertain');
-  assert.equal(offer.eligible, false);
-  assert.equal(offer.fieldVerification?.price, 'unverified');
-  assert.ok(offer.exclusionReasons.includes('identity:uncertain'));
+  assert.equal(verify(titleOnlyExactPage()), null);
 });
 
 test('comparison portal page is never graduated as a direct seller offer', () => {
