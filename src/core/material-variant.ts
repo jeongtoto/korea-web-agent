@@ -10,6 +10,7 @@ export interface MaterialVariantFields {
 const GENERATION_RE = /\b(EVO|PRO|PLUS|MAX|ULTRA|NEO|SE|MK\d+|GEN\d+)\b/i;
 const GENERATION_ALL_RE = /\b(EVO|PRO|PLUS|MAX|ULTRA|NEO|SE|MK\d+|GEN\d+)\b/gi;
 const REFRESH_RATE_RE = /\b(\d{2,3})\s*HZ\b/gi;
+const REFRESH_RATE_BEFORE_RESOLUTION_RE = /\b(\d{2,3})\s+(?:FHD|QHD|WQHD|UHD)\b/gi;
 const COLOR_PATTERNS: Array<[RegExp, string]> = [
   [/(?:화이트|\bWHITE\b)/i, 'white'],
   [/(?:블랙|\bBLACK\b)/i, 'black'],
@@ -58,11 +59,16 @@ function pixelPolicy(text: string): PixelPolicy | undefined {
   return zeroDefect ? 'zero_defect' : 'standard';
 }
 
+function addRefreshRate(values: Set<number>, raw: string | undefined): void {
+  const value = Number(raw);
+  if (Number.isFinite(value) && value >= 30 && value <= 1000) values.add(value);
+}
+
 function refreshRateValues(text: string): Set<number> {
   const values = new Set<number>();
-  for (const match of text.matchAll(REFRESH_RATE_RE)) {
-    const value = Number(match[1]);
-    if (Number.isFinite(value) && value >= 30 && value <= 1000) values.add(value);
+  for (const match of text.matchAll(REFRESH_RATE_RE)) addRefreshRate(values, match[1]);
+  if (monitorLike(text)) {
+    for (const match of text.matchAll(REFRESH_RATE_BEFORE_RESOLUTION_RE)) addRefreshRate(values, match[1]);
   }
   return values;
 }
