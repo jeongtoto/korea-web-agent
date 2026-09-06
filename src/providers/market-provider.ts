@@ -89,6 +89,7 @@ export interface MarketProvider {
   discover(context: MarketProviderContext): Promise<DiscoveryCandidate[]>;
   identify(candidate: VerificationCandidate, context: MarketProviderContext): CanonicalIdentityMatch;
   expandSellers?(candidate: DiscoveryCandidate, context: MarketProviderContext): Promise<SellerCandidate[]>;
+  fallbackSellers?(candidate: DiscoveryCandidate, context: MarketProviderContext): Promise<SellerCandidate[]>;
   verify(candidate: VerificationCandidate, context: MarketProviderContext): Promise<VerifiedCandidate>;
   extractOffer(
     candidate: VerifiedCandidate,

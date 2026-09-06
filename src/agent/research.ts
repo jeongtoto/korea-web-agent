@@ -220,11 +220,16 @@ function hasReason(offer: MarketOffer, reason: string): boolean {
   );
 }
 
+function hasSellerAuthoritativeIdentity(offer: MarketOffer): boolean {
+  const verification = offer.fieldVerification?.identity ?? offer.verification;
+  return verification === 'page_verified' || verification === 'checkout_verified';
+}
+
 function dominantVerificationGap(report: ResearchJob['report']): AgentVerificationGap | undefined {
   if (!report || report.decision !== 'INSUFFICIENT') return undefined;
   const offers = report.offers ?? [];
 
-  if (offers.some((offer) => {
+  if (offers.filter(hasSellerAuthoritativeIdentity).some((offer) => {
     const verdict = offer.verificationTrace?.identityVerdict ?? offer.identityVerdict;
     return Boolean(verdict && verdict !== 'exact')
       || offer.verificationTrace?.rejectionReasons.some((reason) => reason.startsWith('identity:')) === true

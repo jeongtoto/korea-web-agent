@@ -137,7 +137,7 @@ test('Naver comparison bridge resolves to the final seller before page verificat
   assert.equal(offer?.verificationTrace?.resolvedSellerUrl, sellerUrl);
 });
 
-test('Naver exact portal falls back to exact seller search without trusting fallback snippet price', async () => {
+test('Naver exact portal exposes explicit fallback seller discovery without trusting fallback snippet price', async () => {
   const portalUrl = 'https://shopping.naver.com/catalog/32345';
   const sellerUrl = 'https://smartstore.naver.com/wideview/products/999?option=V3';
   let searchCalls = 0;
@@ -169,7 +169,11 @@ test('Naver exact portal falls back to exact seller search without trusting fall
   );
 
   const portal = discovery('naver-shopping', '네이버쇼핑', portalUrl, '최저가 365,400원');
-  const sellers = await naverShoppingProvider.expandSellers?.(portal, context);
+  const expanded = await naverShoppingProvider.expandSellers?.(portal, context);
+  assert.equal(expanded?.length, 0);
+  assert.equal(searchCalls, 0, 'ordinary comparison expansion must not perform fallback discovery');
+
+  const sellers = await naverShoppingProvider.fallbackSellers?.(portal, context);
   assert.equal(searchCalls, 1);
   assert.equal(sellers?.length, 1);
   assert.equal(sellers?.[0]?.resolutionMethod, 'fallback_search');
