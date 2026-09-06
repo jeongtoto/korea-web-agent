@@ -1,3 +1,4 @@
+import { extractMaterialVariant, type MaterialVariantFields } from './material-variant.ts';
 import type {
   CanonicalComponent,
   CanonicalProductIdentity,
@@ -5,9 +6,11 @@ import type {
   OfferCondition,
 } from './types.ts';
 
-const MODEL_TOKEN_RE = /\b[A-Z]{2,}[A-Z0-9_-]*\d[A-Z0-9_-]*\b/gi;
+const MODEL_TOKEN_RE = /\b(?=[A-Z0-9_-]{5,}\b)(?=[A-Z0-9_-]*[A-Z])(?=[A-Z0-9_-]*\d)[A-Z0-9_-]+\b/gi;
 const SIZE_RE = /(?:^|[^0-9])(\d{2,3}(?:\.\d+)?)\s*(?:인치|inch|형)(?=$|[^0-9a-z])/i;
 const VERSION_RE = /\b(V\d+(?:\.\d+)?)\b/i;
+
+type MaterialPrimary = CanonicalProductIdentity['primary'] & MaterialVariantFields;
 
 function compact(value: string | undefined): string {
   return (value ?? '').replace(/\s+/g, ' ').trim();
@@ -37,7 +40,10 @@ function explicitCondition(question: string): OfferCondition | 'any' {
 }
 
 function modelTokens(text: string): string[] {
-  return [...new Set((text.match(MODEL_TOKEN_RE) ?? []).map((token) => token.toUpperCase()))];
+  return [...new Set((text.match(MODEL_TOKEN_RE) ?? [])
+    .map((token) => token.toUpperCase())
+    .filter((token) => !/^\d+(?:HZ|KHZ|MHZ)$/i.test(token))
+    .filter((token) => !/^\d+X\d+$/i.test(token)))];
 }
 
 function inclusionSuppressed(question: string): boolean {
@@ -108,14 +114,17 @@ export function compileCanonicalIdentity(
     ?? target.name?.match(SIZE_RE)?.[1];
   const brand = normalizeBrand(target.brand);
   const requiredComponents = buildRequiredComponents(identityText, question, primaryModel);
+  const materialVariant = extractMaterialVariant(identityText, primaryModel);
+  const primary: MaterialPrimary = {
+    ...(primaryModel ? { model: primaryModel } : {}),
+    ...(size ? { size } : {}),
+    ...materialVariant,
+  };
 
   return {
     kind: 'product',
     ...(brand ? { brand } : {}),
-    primary: {
-      ...(primaryModel ? { model: primaryModel } : {}),
-      ...(size ? { size } : {}),
-    },
+    primary,
     requiredComponents,
     optionalComponents: [],
     condition: explicitCondition(question),
@@ -132,11 +141,16 @@ export function canonicalIdentityKey(
 ): string | undefined {
   const model = normalizeCode(identity.primary.model);
   if (!model) return undefined;
+  const primary = identity.primary as MaterialPrimary;
 
   const parts = [
     normalizeBrand(identity.brand),
     model,
     compact(identity.primary.size) || undefined,
+    normalizeCode(primary.generation),
+    compact(primary.color) || undefined,
+    primary.pixelPolicy?.toUpperCase(),
+    primary.refreshRateHz !== undefined ? `${primary.refreshRateHz}HZ` : undefined,
     ...identity.requiredComponents.map((component) => {
       const componentModel = normalizeCode(component.model);
       if (!componentModel) return undefined;
