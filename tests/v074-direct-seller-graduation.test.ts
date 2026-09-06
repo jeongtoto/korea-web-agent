@@ -113,3 +113,18 @@ test('comparison portal page is never graduated as a direct seller offer', () =>
 
   assert.equal(verify(page), null);
 });
+
+test('internally conflicting seller page cannot bypass variant isolation', () => {
+  const page = exactPage();
+  page.description = '상세 사양: QHD Fast IPS 180Hz 화이트 일반';
+
+  assert.equal(verify(page), null);
+});
+
+test('seller page without explicit current availability cannot graduate', () => {
+  const page = exactPage();
+  if (page.product?.offers) delete page.product.offers.availability;
+  if (page.facts) delete page.facts.availability;
+
+  assert.equal(verify(page), null);
+});
