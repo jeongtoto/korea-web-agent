@@ -74,6 +74,8 @@ function preservePublicShoppingContext(before: ResearchJob, after: ResearchJob, 
   const previous = before.report;
   const report = after.report;
 
+  // Optional Relay/account data must never erase the reproducible public seller snapshot.
+  if (!report.price && previous.price) report.price = previous.price;
   if (previous.priceHistory) report.priceHistory = previous.priceHistory;
   if (!report.offers && previous.offers) report.offers = previous.offers;
   if (!report.bestOffers && previous.bestOffers) report.bestOffers = previous.bestOffers;
