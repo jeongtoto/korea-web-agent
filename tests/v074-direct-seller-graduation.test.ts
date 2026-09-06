@@ -1,10 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runResearch } from '../src/orchestrator/research.ts';
+import { compileCanonicalIdentity } from '../src/core/canonical-identity.ts';
+import type { NormalizedTarget } from '../src/core/types.ts';
 import type { DirectPageResult } from '../src/providers/direct-page.ts';
+import { verifyDirectSellerCandidate } from '../src/shopping/direct-seller-verifier.ts';
 
 const exactUrl = 'https://www.compuzone.co.kr/product/product_detail.htm?ProductNo=1333822';
 const question = '크로스오버 27QAW99 Fast-iPS 200 WQHD 화이트 Ai게이밍 일반 새상품 현재 가격과 배송비 포함 실결제가를 검증해줘';
+const target: NormalizedTarget = {
+  kind: 'product',
+  brand: '크로스오버',
+  model: '27QAW99',
+  name: '크로스오버 27QAW99 Fast-iPS 200 WQHD 화이트 Ai게이밍 일반',
+  canonicalUrl: exactUrl,
+};
+const canonicalIdentity = compileCanonicalIdentity(target, question);
 
 function exactPage(): DirectPageResult {
   return {
@@ -64,51 +74,42 @@ function titleOnlyExactPage(): DirectPageResult {
   };
 }
 
-async function research(page: DirectPageResult) {
-  return runResearch({
-    question,
-    url: exactUrl,
-    category: 'product',
-    includeLocalRelay: false,
-  }, {
-    directPage: async () => page,
-    publicSearch: async () => [],
-    relayClient: null,
-    now: () => new Date('2026-09-06T04:10:00.000Z'),
-    idFactory: () => 'direct-seller-regression',
-  }, {
-    resolvedTarget: {
-      kind: 'product',
-      brand: '크로스오버',
-      model: '27QAW99',
-      name: '크로스오버 27QAW99 Fast-iPS 200 WQHD 화이트 Ai게이밍 일반',
-      canonicalUrl: exactUrl,
-    },
-    identityConfidence: 0.95,
-    resolutionAmbiguous: false,
+function verify(page: DirectPageResult) {
+  return verifyDirectSellerCandidate({
+    page,
+    target,
+    canonicalIdentity,
+    retrievedAt: '2026-09-06T04:10:00.000Z',
   });
 }
 
-test('direct exact seller page preserves shipping and graduates verified cash offer', async () => {
-  const job = await research(exactPage());
-  const cash = job.report?.bestOffers?.cash;
+test('direct exact seller page preserves identity, price, shipping and decisive total', () => {
+  const offer = verify(exactPage());
 
-  assert.ok(cash, 'exact direct seller page should produce a decisive cash offer');
-  assert.equal(cash.amount, 198000);
-  assert.equal(cash.offer.totalCashPrice, 198000);
-  assert.equal(cash.offer.shippingFee, 0);
-  assert.equal(cash.offer.fieldVerification?.identity, 'page_verified');
-  assert.equal(cash.offer.fieldVerification?.price, 'page_verified');
-  assert.equal(cash.offer.fieldVerification?.shipping, 'page_verified');
+  assert.ok(offer);
+  assert.equal(offer.identityVerdict, 'exact');
+  assert.equal(offer.eligible, true);
+  assert.equal(offer.salePrice, 198000);
+  assert.equal(offer.totalCashPrice, 198000);
+  assert.equal(offer.shippingFee, 0);
+  assert.equal(offer.fieldVerification?.identity, 'page_verified');
+  assert.equal(offer.fieldVerification?.price, 'page_verified');
+  assert.equal(offer.fieldVerification?.shipping, 'page_verified');
 });
 
-test('exact page title alone cannot graduate a generic price-scoped structured product', async () => {
-  const job = await research(titleOnlyExactPage());
+test('exact page title alone cannot graduate a generic price-scoped structured product', () => {
+  const offer = verify(titleOnlyExactPage());
 
-  assert.equal(job.report?.bestOffers?.cash, undefined);
-  const directOffer = job.report?.offers?.find((offer) => offer.url === exactUrl);
-  if (directOffer) {
-    assert.notEqual(directOffer.identityVerdict, 'exact');
-    assert.notEqual(directOffer.fieldVerification?.price, 'page_verified');
-  }
+  assert.ok(offer);
+  assert.equal(offer.identityVerdict, 'uncertain');
+  assert.equal(offer.eligible, false);
+  assert.equal(offer.fieldVerification?.price, 'unverified');
+  assert.ok(offer.exclusionReasons.includes('identity:uncertain'));
+});
+
+test('comparison portal page is never graduated as a direct seller offer', () => {
+  const page = exactPage();
+  page.url = 'https://prod.danawa.com/info/?pcode=999';
+
+  assert.equal(verify(page), null);
 });
