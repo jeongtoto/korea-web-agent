@@ -60,25 +60,25 @@ function dependencies(observed: Array<{ request: ResearchRequest; context: Resea
   };
 }
 
-test('query-only purchase evaluation resolves the product and automatically requests eligible local relay', async () => {
+test('query-only purchase evaluation resolves the product without automatically requesting local relay', async () => {
   const observed: Array<{ request: ResearchRequest; context: ResearchContext }> = [];
   const result = await runAgentResearch({ query: '와이드뷰 43인치 4K V3 스탠드 어때?' }, dependencies(observed));
 
   assert.equal(observed.length, 1);
-  assert.equal(observed[0]?.request.includeLocalRelay, true);
+  assert.equal(observed[0]?.request.includeLocalRelay, false);
   assert.match(observed[0]?.request.url ?? '', /naver\.com/);
   assert.equal(observed[0]?.context.intent?.purchaseDecision, true);
   assert.ok((observed[0]?.context.identityConfidence ?? 0) >= 0.7);
   assert.match(observed[0]?.context.resolvedTarget?.name ?? '', /와이드뷰.*V3|V3.*와이드뷰/i);
 
-  assert.equal(result.status, 'running');
+  assert.equal(result.status, 'completed');
   assert.equal(result.jobId, 'agent-job-1');
-  assert.equal(result.pollUrl, '/api/agent/job?jobId=agent-job-1');
+  assert.equal(result.pollUrl, undefined);
   assert.equal(result.product.ambiguous, false);
-  assert.equal(result.relay.requested, true);
+  assert.equal(result.relay.requested, false);
 });
 
-test('purchase evaluation finds a relay-eligible seller when the resolved canonical URL is not relay eligible', async () => {
+test('purchase evaluation keeps the resolved public seller instead of searching for relay-only sellers', async () => {
   const observed: Array<{ request: ResearchRequest; context: ResearchContext }> = [];
   const searchQueries: string[] = [];
   const result = await runAgentResearch({
@@ -86,16 +86,9 @@ test('purchase evaluation finds a relay-eligible seller when the resolved canoni
   }, {
     publicSearch: async (query) => {
       searchQueries.push(query);
-      if (searchQueries.length === 1) {
-        return [{
-          title: '와이드뷰 QWGE43UT1 43인치 V3 이동형 패키지',
-          url: 'https://item.gmarket.co.kr/Item?goodsCode=4521501632',
-          snippet: 'QWGE43UT1 EKWBYME78W V3 43인치',
-        }];
-      }
       return [{
         title: '와이드뷰 QWGE43UT1 43인치 V3 이동형 패키지',
-        url: 'https://www.coupang.com/vp/products/1234567890',
+        url: 'https://item.gmarket.co.kr/Item?goodsCode=4521501632',
         snippet: 'QWGE43UT1 EKWBYME78W V3 43인치',
       }];
     },
@@ -105,15 +98,15 @@ test('purchase evaluation finds a relay-eligible seller when the resolved canoni
     },
   });
 
-  assert.ok(searchQueries.length >= 2);
+  assert.equal(searchQueries.length, 1);
   assert.equal(observed.length, 1);
-  assert.equal(observed[0]?.request.includeLocalRelay, true);
-  assert.match(observed[0]?.request.url ?? '', /gmarket\.co\.kr|coupang\.com/);
-  assert.ok((observed[0]?.request.relayCandidates?.length ?? 0) >= 1);
-  assert.equal(result.relay.requested, true);
+  assert.equal(observed[0]?.request.includeLocalRelay, false);
+  assert.match(observed[0]?.request.url ?? '', /gmarket\.co\.kr/);
+  assert.equal(observed[0]?.request.relayCandidates, undefined);
+  assert.equal(result.relay.requested, false);
 });
 
-test('relay discovery searches markets independently when a combined search would miss the exact seller page', async () => {
+test('purchase research does not fan out relay-market discovery and preserves request-scoped purchase context', async () => {
   const observed: Array<{ request: ResearchRequest; context: ResearchContext }> = [];
   const searchQueries: string[] = [];
 
@@ -126,21 +119,11 @@ test('relay discovery searches markets independently when a combined search woul
   }, {
     publicSearch: async (query) => {
       searchQueries.push(query);
-      if (searchQueries.length === 1) {
-        return [{
-          title: '와이드뷰 QWGE43UT1 EKWBYME78W V3 43인치 이동형 패키지',
-          url: 'https://example.com/catalog/widevu-v3',
-          snippet: 'QWGE43UT1 EKWBYME78W V3 43인치 UHD 4K',
-        }];
-      }
-      if (query.includes('site:kream.co.kr') && !query.includes(' OR ')) {
-        return [{
-          title: '와이드뷰 QWGE43UT1 EKWBYME78W V3 43인치 이동형 패키지',
-          url: 'https://kream.co.kr/products/703400',
-          snippet: 'QWGE43UT1 EKWBYME78W V3 43인치 UHD 4K',
-        }];
-      }
-      return [];
+      return [{
+        title: '와이드뷰 QWGE43UT1 EKWBYME78W V3 43인치 이동형 패키지',
+        url: 'https://example.com/catalog/widevu-v3',
+        snippet: 'QWGE43UT1 EKWBYME78W V3 43인치 UHD 4K',
+      }];
     },
     cloudResearch: async (request, context) => {
       observed.push({ request, context });
@@ -148,12 +131,13 @@ test('relay discovery searches markets independently when a combined search woul
     },
   });
 
+  assert.equal(searchQueries.length, 1);
   assert.equal(observed.length, 1);
-  assert.equal(observed[0]?.request.includeLocalRelay, true);
-  assert.equal(observed[0]?.request.url, 'https://kream.co.kr/products/703400');
-  assert.ok(observed[0]?.request.relayCandidates?.some((candidate) => candidate.market === 'KREAM'));
+  assert.equal(observed[0]?.request.includeLocalRelay, false);
+  assert.equal(observed[0]?.request.url, 'https://example.com/catalog/widevu-v3');
+  assert.equal(observed[0]?.request.relayCandidates, undefined);
   assert.deepEqual(observed[0]?.request.purchaseContext?.ownedCards, ['삼성 iD SELECT ALL', '신한 ANNIVERSE']);
-  assert.equal(result.relay.requested, true);
+  assert.equal(result.relay.requested, false);
 });
 
 test('spec-only product question resolves product but does not request PC relay', async () => {
