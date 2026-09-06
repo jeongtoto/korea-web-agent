@@ -1,3 +1,4 @@
+import { extractMaterialVariant, type MaterialVariantFields } from './material-variant.ts';
 import type {
   CanonicalComponent,
   CanonicalIdentityMatch,
@@ -5,9 +6,11 @@ import type {
   OfferCondition,
 } from './types.ts';
 
-const MODEL_TOKEN_RE = /\b[A-Z][A-Z0-9_-]*\d[A-Z0-9_-]*\b/gi;
+const MODEL_TOKEN_RE = /\b(?=[A-Z0-9_-]{5,}\b)(?=[A-Z0-9_-]*[A-Z])(?=[A-Z0-9_-]*\d)[A-Z0-9_-]+\b/gi;
 const SIZE_RE = /(?:^|[^0-9])(\d{2,3}(?:\.\d+)?)\s*(?:인치|inch|형)(?=$|[^0-9a-z])/i;
 const VERSION_RE = /\b(V\d+(?:\.\d+)?)\b/i;
+
+type MaterialPrimary = CanonicalProductIdentity['primary'] & MaterialVariantFields;
 
 function normalizedCode(value: string | undefined): string | undefined {
   const output = value?.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -22,7 +25,9 @@ function normalizedText(value: string | undefined): string | undefined {
 function modelTokens(text: string): string[] {
   return [...new Set((text.match(MODEL_TOKEN_RE) ?? [])
     .map((value) => value.toUpperCase())
-    .filter((value) => !/^V\d+(?:\.\d+)?$/i.test(value)))];
+    .filter((value) => !/^V\d+(?:\.\d+)?$/i.test(value))
+    .filter((value) => !/^\d+(?:HZ|KHZ|MHZ)$/i.test(value))
+    .filter((value) => !/^\d+X\d+$/i.test(value)))];
 }
 
 function conditionFromText(text: string): OfferCondition | 'any' {
@@ -65,13 +70,16 @@ export function candidateIdentityFromText(
     };
   });
   const size = text.match(SIZE_RE)?.[1];
+  const materialVariant = extractMaterialVariant(text, primaryModel);
+  const primary: MaterialPrimary = {
+    ...(primaryModel ? { model: primaryModel } : {}),
+    ...(size ? { size } : {}),
+    ...materialVariant,
+  };
 
   return {
     kind: 'product',
-    primary: {
-      ...(primaryModel ? { model: primaryModel } : {}),
-      ...(size ? { size } : {}),
-    },
+    primary,
     requiredComponents,
     optionalComponents: [],
     condition: condition ?? conditionFromText(text),
@@ -144,6 +152,8 @@ export function compareCanonicalIdentity(
   const matched: string[] = [];
   const missing: string[] = [];
   const conflicts: string[] = [];
+  const referencePrimary = reference.primary as MaterialPrimary;
+  const candidatePrimary = candidate.primary as MaterialPrimary;
 
   if (reference.brand && candidate.brand) {
     compareField('brand', reference.brand, candidate.brand, matched, missing, conflicts, normalizedText);
@@ -153,6 +163,16 @@ export function compareCanonicalIdentity(
   compareField('primary.generation', reference.primary.generation, candidate.primary.generation, matched, missing, conflicts);
   compareField('primary.capacity', reference.primary.capacity, candidate.primary.capacity, matched, missing, conflicts, normalizedText);
   compareField('primary.color', reference.primary.color, candidate.primary.color, matched, missing, conflicts, normalizedText);
+  compareField('primary.pixelPolicy', referencePrimary.pixelPolicy, candidatePrimary.pixelPolicy, matched, missing, conflicts, normalizedText);
+  compareField(
+    'primary.refreshRateHz',
+    referencePrimary.refreshRateHz?.toString(),
+    candidatePrimary.refreshRateHz?.toString(),
+    matched,
+    missing,
+    conflicts,
+    normalizedText,
+  );
 
   for (const required of reference.requiredComponents) {
     const component = findCandidateComponent(required, candidate.requiredComponents);
