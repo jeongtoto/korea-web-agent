@@ -221,7 +221,7 @@ test('personalized Relay price never replaces the public observation written to 
   assert.deepEqual(job.report?.priceHistory?.observations.map((item) => item.cashPrice), [410000]);
 });
 
-test('report intelligence exposes stable rows, member/non-member scenarios and exact known live end date', async () => {
+test('report intelligence keeps public cash in stable rows, suppresses personalized scenarios and preserves public event end date', async () => {
   const store = new MemoryStore();
   const at = '2026-08-24T09:00:00.000Z';
   const job = await runCloudResearch({ question: 'QWGE43UT1 가격', category: 'product' }, {
@@ -230,11 +230,15 @@ test('report intelligence exposes stable rows, member/non-member scenarios and e
     publicResearch: async () => publicJob('job-intel', 389000, at),
   });
 
-  assert.deepEqual(job.report?.standardPriceRows?.map((row) => row.key), [
+  const rows = job.report?.standardPriceRows ?? [];
+  assert.deepEqual(rows.map((row) => row.key), [
     'cash', 'card', 'effective_without_membership', 'effective_with_membership',
   ]);
-  assert.equal(job.report?.membershipScenarios?.withoutMembership.paymentPrice, 389000);
-  assert.equal(job.report?.membershipScenarios?.withMembership.expectedPoints, 15000);
+  assert.equal(rows.find((row) => row.key === 'cash')?.amount, 389000);
+  assert.equal(rows.find((row) => row.key === 'card')?.amount, undefined);
+  assert.equal(rows.find((row) => row.key === 'effective_without_membership')?.amount, undefined);
+  assert.equal(rows.find((row) => row.key === 'effective_with_membership')?.amount, undefined);
+  assert.equal(job.report?.membershipScenarios, undefined);
   assert.equal(job.report?.eventWindow?.endsOn, '2026-08-31');
   assert.equal(job.report?.eventWindow?.status, 'active');
 });
