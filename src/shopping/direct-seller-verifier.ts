@@ -5,7 +5,10 @@ import type {
 } from '../core/types.ts';
 import { isComparisonPortalHost } from '../providers/comparison-links.ts';
 import type { DirectPageResult } from '../providers/direct-page.ts';
-import { verifiedSellerOfferFromPage } from '../providers/seller-expansion.ts';
+import {
+  directPageIdentityMatch,
+  verifiedSellerOfferFromPage,
+} from '../providers/seller-expansion.ts';
 
 export interface DirectSellerCandidateInput {
   page: DirectPageResult;
@@ -25,6 +28,12 @@ export function verifyDirectSellerCandidate(
   }
 
   if (isComparisonPortalHost(pageUrl)) return null;
+
+  const availability = input.page.facts?.availability ?? input.page.product?.offers?.availability;
+  if (!availability) return null;
+
+  const broadIdentity = directPageIdentityMatch(input.canonicalIdentity, input.page);
+  if (broadIdentity.verdict !== 'exact') return null;
 
   return verifiedSellerOfferFromPage({
     page: input.page,
