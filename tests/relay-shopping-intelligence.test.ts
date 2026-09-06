@@ -48,7 +48,7 @@ function publicJob(): ResearchJob {
   };
 }
 
-test('personalized relay preserves public six-month history while recalculating member rows from personalized fields', async () => {
+test('personalized relay preserves public history but does not promote member economics into default pricing rows', async () => {
   const store = new MemoryStore();
   const job = publicJob();
   await saveResearchJob(store, job);
@@ -63,10 +63,14 @@ test('personalized relay preserves public six-month history while recalculating 
     sourceUrl: URL,
   }, '2026-08-24T09:00:05.000Z');
 
+  assert.equal(merged.report?.personalizedPrice?.cashPaymentPrice, 369000);
   assert.equal(merged.report?.priceHistory?.sku, 'QWGE43UT1+EKWBYME78W(V3)');
   assert.deepEqual(merged.report?.priceHistory?.observations.map((item) => item.cashPrice), [410000, 389000]);
-  assert.equal(merged.report?.membershipScenarios?.withoutMembership.paymentPrice, 369000);
-  assert.equal(merged.report?.membershipScenarios?.withMembership.expectedPoints, 17000);
-  assert.equal(merged.report?.eventWindow?.endsOn, '2026-08-31');
-  assert.equal(merged.report?.standardPriceRows?.[0]?.amount, 369000);
+  assert.equal(merged.report?.membershipScenarios, undefined);
+  const rows = merged.report?.standardPriceRows ?? [];
+  assert.equal(rows.find((row) => row.key === 'cash')?.amount, 389000);
+  assert.equal(rows.find((row) => row.key === 'card')?.amount, undefined);
+  assert.equal(rows.find((row) => row.key === 'effective_without_membership')?.amount, undefined);
+  assert.equal(rows.find((row) => row.key === 'effective_with_membership')?.amount, undefined);
+  assert.equal(merged.report?.eventWindow, undefined);
 });
