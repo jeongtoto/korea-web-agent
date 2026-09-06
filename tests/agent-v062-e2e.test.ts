@@ -141,7 +141,7 @@ test('v0.6.2 exact-product E2E follows Danawa to the seller and ranks verified s
   assert.equal(danawa?.expandedSellers, 1);
   assert.equal(danawa?.eligibleSellers, 1);
 
-  assert.equal(result.relay.requested, true);
+  assert.equal(result.relay.requested, false);
   assert.equal(result.relay.used, false);
   assert.equal(result.relay.mode, 'public_only');
 });

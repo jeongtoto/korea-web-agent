@@ -1,6 +1,7 @@
 import type {
   CanonicalProductIdentity,
   MarketCoverage,
+  MarketOffer,
   ProductReport,
   RelayStatus,
 } from '../core/types.ts';
@@ -41,41 +42,69 @@ function priceLines(report: ProductReport): string[] {
   const cash = report.bestOffers?.cash;
   lines.push(cash
     ? `- 현금 결제: **${won(cash.amount)}** · ${cash.offer.market} · ${cash.offer.verification}`
-    : '- 현금 결제: 검증 완료 가격 없음');
+    : report.price?.salePrice
+      ? `- 현금 결제: **${won(report.price.salePrice)}** · 공개 판매페이지 검증가`
+      : '- 현금 결제: 검증 완료 가격 없음');
 
   const publicConditional = report.bestOffers?.publicConditional;
   lines.push(publicConditional
     ? `- 공개 조건가: **${won(publicConditional.amount)}** · ${publicConditional.offer.market}${publicConditional.offer.promotion?.condition ? ` · ${publicConditional.offer.promotion.condition}` : ''}`
     : '- 공개 조건가: 검증된 현재 적용가 없음');
 
-  const owned = report.bestOffers?.ownedCard;
-  lines.push(owned
-    ? `- 보유 카드: **${won(owned.amount)}**${owned.offer.cardName ? ` · ${owned.offer.cardName}` : ''}`
-    : '- 보유 카드: 검증된 적용가 없음');
-
-  const conditional = report.bestOffers?.conditionalPayment;
-  lines.push(conditional
-    ? `- 조건부 결제: **${won(conditional.amount)}**${conditional.offer.paymentMethod ? ` · ${conditional.offer.paymentMethod}` : ''}`
-    : '- 조건부 결제: 검증된 적용가 없음');
-
-  const without = report.membershipScenarios?.withoutMembership;
-  const withMembership = report.membershipScenarios?.withMembership;
-  if (without || withMembership) {
-    const chunks: string[] = [];
-    if (without) chunks.push(`비회원 체감 ${won(without.effectivePrice)}`);
-    if (withMembership) chunks.push(`회원 체감 ${won(withMembership.effectivePrice)}`);
-    lines.push(`- 멤버십/체감가: ${chunks.join(' · ')}`);
-  } else if (report.bestOffers?.effective) {
-    lines.push(`- 적립 반영 체감가: **${won(report.bestOffers.effective.amount)}**`);
-  } else {
-    lines.push('- 멤버십/체감가: 검증된 시나리오 없음');
-  }
-
   const alternative = report.bestOffers?.alternativeCondition;
   lines.push(alternative
     ? `- 동일 SKU 상태 대안: **${won(alternative.amount)}** · ${alternative.offer.condition} · ${alternative.offer.market}`
     : '- 동일 SKU 상태 대안: 검증된 후보 없음');
   return lines;
+}
+
+function benefitSignal(offer: MarketOffer): string[] {
+  const signals: string[] = [];
+  if (offer.cardName) signals.push(offer.cardName);
+  if (offer.paymentMethod) signals.push(offer.paymentMethod);
+  if (offer.promotion?.condition) signals.push(offer.promotion.condition);
+  for (const condition of offer.conditions ?? []) {
+    if (/(카드|쿠폰|멤버|회원|적립|페이|pay|포인트|할인)/i.test(condition)) signals.push(condition);
+  }
+  if (offer.membershipPrice !== undefined) signals.push('회원/멤버십 가격 혜택');
+  if (offer.points !== undefined || offer.effectivePrice !== undefined) signals.push('적립/포인트 혜택');
+  return [...new Set(signals.map((item) => item.trim()).filter(Boolean))];
+}
+
+function benefitLines(report: ProductReport): string[] {
+  const candidates = (report.offers ?? []).filter((offer) =>
+    offer.cardName
+    || offer.cardPrice !== undefined
+    || offer.paymentMethod
+    || offer.paymentPrice !== undefined
+    || offer.membershipPrice !== undefined
+    || offer.points !== undefined
+    || offer.effectivePrice !== undefined
+    || (offer.conditions ?? []).some((condition) => /(카드|쿠폰|멤버|회원|적립|페이|pay|포인트|할인)/i.test(condition)));
+
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const offer of candidates) {
+    const signals = benefitSignal(offer);
+    if (!signals.length) continue;
+    const key = `${offer.url}|${signals.join('|')}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    lines.push(`- ${signals.join(' · ')} · 실제 적용 여부와 최종 금액은 판매페이지에서 확인 · ${offer.url}`);
+    if (lines.length >= 5) break;
+  }
+
+  const personalized = report.personalizedPrice;
+  if (personalized?.sourceUrl && lines.length < 5) {
+    const hasMemberSignal = personalized.membershipPrice !== undefined
+      || personalized.membershipPoints !== undefined
+      || personalized.basePoints !== undefined;
+    if (hasMemberSignal && !lines.some((line) => line.includes(personalized.sourceUrl!))) {
+      lines.push(`- 회원/멤버십·적립 혜택이 계정에 따라 달라질 수 있음 · 실제 적용 여부와 최종 금액은 판매페이지에서 확인 · ${personalized.sourceUrl}`);
+    }
+  }
+
+  return lines.length ? lines : ['- 추가 카드·회원·계정별 혜택은 판매페이지에서 직접 확인'];
 }
 
 function historyLines(report: ProductReport): string[] {
@@ -105,7 +134,7 @@ function coverageLines(coverage: MarketCoverage[] | undefined): string[] {
 
 function limitationLines(report: ProductReport): string[] {
   const lines: string[] = [];
-  for (const check of report.manualChecks ?? []) lines.push(`- ${check.message}`);
+  for (const check of report.manualChecks ?? []) lines.push(`- ${check.message}${check.url ? ` · ${check.url}` : ''}`);
   for (const warning of report.validationWarnings ?? []) {
     lines.push(`- [${warning.severity}] ${warning.code}: ${warning.message}`);
   }
@@ -122,6 +151,7 @@ export function buildShoppingPresentation(
     report.summary,
   ].join('\n');
   const prices = priceLines(report).join('\n');
+  const benefits = benefitLines(report).join('\n');
   const history = historyLines(report).join('\n');
   const coverage = coverageLines(report.marketCoverage).join('\n');
   const relay = `- ${context.relay.mode} · used=${context.relay.used}${context.relay.message ? ` · ${context.relay.message}` : ''}`;
@@ -130,6 +160,7 @@ export function buildShoppingPresentation(
   const sections = {
     conclusion,
     prices,
+    benefits,
     history,
     coverage,
     relay,
@@ -138,7 +169,8 @@ export function buildShoppingPresentation(
   return {
     markdown: [
       '## 결론', conclusion,
-      '## 가격', prices,
+      '## 공개 검증 가격', prices,
+      '## 현재 추가 혜택', benefits,
       '## 가격 이력', history,
       '## 시장 확인', coverage,
       '## Relay', relay,

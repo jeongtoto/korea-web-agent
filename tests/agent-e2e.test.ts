@@ -69,7 +69,7 @@ function search(query: string) {
   return [];
 }
 
-test('WideView purchase question resolves exact product, uses authenticated relay, rejects unrelated evidence and reaches BUY with explicit price/review signals', async () => {
+test('WideView purchase question resolves exact product, skips automatic relay, rejects unrelated evidence and reaches BUY from public price/review signals', async () => {
   let relayExtractCalls = 0;
   const result = await runAgentResearch({ query: '와이드뷰 43인치 4K V3 스탠드 어때?' }, {
     publicSearch: async (query) => search(query),
@@ -101,10 +101,11 @@ test('WideView purchase question resolves exact product, uses authenticated rela
   assert.equal(result.product.productId, '11458011168');
   assert.equal(result.product.model?.toUpperCase(), 'V3');
   assert.match(result.product.variant ?? '', /43/);
-  assert.equal(result.relay.requested, true);
-  assert.equal(result.relay.used, true);
-  assert.equal(relayExtractCalls, 1);
-  assert.equal(result.personalizedPrice?.couponPrice, 399000);
+  assert.equal(result.relay.requested, false);
+  assert.equal(result.relay.used, false);
+  assert.equal(relayExtractCalls, 0);
+  assert.equal(result.personalizedPrice, undefined);
+  assert.equal(result.price?.salePrice, 439120);
   assert.equal(result.decision, 'BUY');
   assert.ok(result.confidence < 0.97);
   assert.equal(result.evidence.some((item) => item.sourceUrl.includes('kcl.re.kr')), false);

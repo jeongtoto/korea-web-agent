@@ -133,13 +133,11 @@ function dimensionsFor(
   identityConfidence: number | undefined,
 ): ProductConfidenceDimensions {
   const usefulPersonalized = hasUsablePrice(personalizedPrice);
-  const price = usefulPersonalized
-    ? 0.95
-    : hasUsablePrice(publicPrice)
-      ? clamp(Math.max(0.7, ...exactEvidence
-        .filter((item) => item.data?.product)
-        .map((item) => item.confidence)))
-      : 0;
+  const price = hasUsablePrice(publicPrice)
+    ? clamp(Math.max(0.7, ...exactEvidence
+      .filter((item) => item.data?.product)
+      .map((item) => item.confidence)))
+    : 0;
   return {
     identity: clamp(identityConfidence ?? defaultIdentityConfidence(target)),
     price,
@@ -190,7 +188,9 @@ export function buildProductReport(input: ProductReportInput): ProductReport {
     input.identityConfidence,
   );
   const confidence = overallConfidence(dimensions, intent);
-  const usablePrice = hasUsablePrice(input.personalizedPrice) || hasUsablePrice(publicPrice);
+  // Personalized/account-specific economics are diagnostic only. Purchase decisions require a
+  // public price that can be reproduced without the user's account state.
+  const usablePrice = hasUsablePrice(publicPrice);
 
   const strengths = qualityEvidence
     .filter((item) => (numericData(item, 'sentiment') ?? 0) >= 0.35)
@@ -206,7 +206,7 @@ export function buildProductReport(input: ProductReportInput): ProductReport {
   const missingInformation: string[] = [];
   if (dimensions.identity < 0.7) missingInformation.push('제품 식별 신뢰도가 충분하지 않습니다.');
   if (qualityEvidence.length < 2) missingInformation.push('이 제품 자체를 직접 평가한 독립적인 품질·사용 근거가 충분하지 않습니다.');
-  if (intent.priceSensitive && !usablePrice) missingInformation.push('현재 구매 판단에 필요한 사용 가능한 가격을 확인하지 못했습니다.');
+  if (intent.priceSensitive && !usablePrice) missingInformation.push('현재 구매 판단에 필요한 공개 검증 가격을 확인하지 못했습니다.');
   if (dimensions.officialSpecs === 0) missingInformation.push('공식 사양·공인 시험 기반의 직접 제품 자료가 부족합니다.');
 
   let decision: ReportDecision = 'INSUFFICIENT';
@@ -237,10 +237,10 @@ export function buildProductReport(input: ProductReportInput): ProductReport {
     .map((item) => item.claim);
 
   const summaryByDecision: Record<ReportDecision, string> = {
-    BUY: '현재 제품 근거와 확인 가능한 가격을 기준으로 구매를 고려할 수 있습니다.',
-    WAIT: '제품 자체보다 현재 가격·구매 타이밍이 불리하다는 근거가 있어 기다리는 편이 낫습니다.',
+    BUY: '현재 제품 근거와 공개 검증 가격을 기준으로 구매를 고려할 수 있습니다.',
+    WAIT: '제품 자체보다 현재 공개 가격·구매 타이밍이 불리하다는 근거가 있어 기다리는 편이 낫습니다.',
     SKIP: '현재 확보된 직접 근거에서는 반복되는 부정적 신호가 구매 이점보다 큽니다.',
-    INSUFFICIENT: '제품 식별·가격·직접 근거 중 필요한 항목이 부족해 구매 여부를 신뢰도 있게 단정하기 어렵습니다.',
+    INSUFFICIENT: '제품 식별·공개 가격·직접 근거 중 필요한 항목이 부족해 구매 여부를 신뢰도 있게 단정하기 어렵습니다.',
   };
 
   const report: ProductReport = {

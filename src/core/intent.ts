@@ -69,7 +69,9 @@ export function classifyResearchIntent(question: string): ResearchIntent {
     productResearch: true,
     purchaseDecision,
     priceSensitive,
-    personalizedPriceUseful: priceSensitive,
+    // Default KWA research is public-price-first. Account/member/card checkout economics are
+    // confirmed by the user on the seller page instead of automatically invoking Relay.
+    personalizedPriceUseful: false,
     specOnly,
   };
 }
