@@ -35,6 +35,28 @@ export function directPageIdentityText(page: DirectPageResult): string {
   ].filter(Boolean).join(' ');
 }
 
+function attributeIdentityText(attributes: Record<string, string | number | boolean> | undefined): string[] {
+  if (!attributes) return [];
+  return Object.entries(attributes).flatMap(([key, value]) => [key, String(value)]);
+}
+
+export function directPagePriceIdentityText(page: DirectPageResult): string {
+  return [
+    page.facts?.name,
+    page.facts?.brand,
+    page.facts?.sku,
+    page.facts?.model,
+    page.facts?.description,
+    ...attributeIdentityText(page.facts?.attributes),
+    page.product?.name,
+    page.product?.brand,
+    page.product?.sku,
+    page.product?.model,
+    page.product?.description,
+    ...attributeIdentityText(page.product?.attributes),
+  ].filter(Boolean).join(' ');
+}
+
 export function directPageIdentityMatch(
   canonicalIdentity: CanonicalProductIdentity,
   page: DirectPageResult,
@@ -92,8 +114,11 @@ export function verifiedSellerOfferFromPage(input: VerifiedSellerOfferInput): Ma
   const price = facts?.price ?? input.page.product?.offers?.price;
   if (price === undefined || !Number.isFinite(price) || price <= 0) return null;
 
-  const candidateIdentity = candidateIdentityFromText(directPageIdentityText(input.page));
+  const broadIdentity = candidateIdentityFromText(directPageIdentityText(input.page));
+  const broadCondition = broadIdentity.condition === 'any' ? undefined : broadIdentity.condition;
+  const candidateIdentity = candidateIdentityFromText(directPagePriceIdentityText(input.page), broadCondition);
   const identity = compareCanonicalIdentity(input.canonicalIdentity, candidateIdentity);
+  const priceVerification = identity.verdict === 'exact' ? 'page_verified' : 'unverified';
   const constraintStatus = constraintEligibility(evaluateProductConstraints(input.constraints, facts?.attributes ?? {}));
   const shippingFee = facts?.shippingFee ?? input.page.product?.offers?.shippingFee;
   const availability = facts?.availability ?? input.page.product?.offers?.availability;
@@ -116,6 +141,7 @@ export function verifiedSellerOfferFromPage(input: VerifiedSellerOfferInput): Ma
 
   const sellerCanonicalUrl = assertPublicUrl(input.page.url).toString();
   const riskFlags: string[] = [];
+  if (identity.verdict !== 'exact') riskFlags.push('가격이 요청한 exact variant에 결속되지 않았습니다.');
   if (shippingFee === undefined) riskFlags.push('배송비가 확인되지 않았습니다.');
   if (mandatoryFee.status === 'unknown') riskFlags.push('필수 구매 비용 금액이 확인되지 않았습니다.');
 
@@ -133,7 +159,7 @@ export function verifiedSellerOfferFromPage(input: VerifiedSellerOfferInput): Ma
     constraintStatus,
     fieldVerification: {
       identity: 'page_verified',
-      price: 'page_verified',
+      price: priceVerification,
       shipping: shippingFee !== undefined ? 'page_verified' : 'unverified',
     },
     bundleComplete: identity.verdict === 'exact' || identity.verdict === 'same_except_condition',
@@ -164,7 +190,7 @@ export function verifiedSellerOfferFromPage(input: VerifiedSellerOfferInput): Ma
     },
     provenance: {
       identity: { sourceUrl: sellerCanonicalUrl, method: 'page_verified', verifiedAt: input.retrievedAt },
-      price: { sourceUrl: sellerCanonicalUrl, method: 'page_verified', verifiedAt: input.retrievedAt },
+      price: { sourceUrl: sellerCanonicalUrl, method: priceVerification, verifiedAt: input.retrievedAt },
       shipping: { sourceUrl: sellerCanonicalUrl, method: shippingFee !== undefined ? 'page_verified' : 'unverified', verifiedAt: input.retrievedAt },
       availability: { sourceUrl: sellerCanonicalUrl, method: 'page_verified', verifiedAt: input.retrievedAt },
     },
@@ -174,11 +200,11 @@ export function verifiedSellerOfferFromPage(input: VerifiedSellerOfferInput): Ma
         resolvedSellerUrl: sellerCanonicalUrl,
         identityVerdict: identity.verdict,
         bundleVerdict: identity.verdict === 'exact' ? 'complete' : 'unknown',
-        priceStatus: 'page_verified',
+        priceStatus: priceVerification,
         shippingStatus: shippingFee === undefined ? 'unknown' : shippingFee === 0 ? 'free' : 'paid',
         availabilityStatus: unavailable(availability) ? 'unavailable' : availability ? 'available' : 'unknown',
         mandatoryFeeStatus: mandatoryFee.status,
-        sellerVerifiedPrice: price,
+        ...(priceVerification === 'page_verified' ? { sellerVerifiedPrice: price } : {}),
         ...(mandatoryFee.amount !== undefined ? { mandatoryPurchaseFee: mandatoryFee.amount } : {}),
         ...(totalCashPrice !== undefined ? { totalCashPrice } : {}),
         rejectionReasons: [...exclusionReasons],
