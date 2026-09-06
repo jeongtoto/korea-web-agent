@@ -8,7 +8,15 @@ export interface MaterialVariantFields {
 }
 
 const GENERATION_RE = /\b(EVO|PRO|PLUS|MAX|ULTRA|NEO|SE|MK\d+|GEN\d+)\b/i;
+const GENERATION_ALL_RE = /\b(EVO|PRO|PLUS|MAX|ULTRA|NEO|SE|MK\d+|GEN\d+)\b/gi;
 const REFRESH_RATE_RE = /\b(\d{2,3})\s*HZ\b/gi;
+const COLOR_PATTERNS: Array<[RegExp, string]> = [
+  [/(?:화이트|\bWHITE\b)/i, 'white'],
+  [/(?:블랙|\bBLACK\b)/i, 'black'],
+  [/(?:실버|\bSILVER\b)/i, 'silver'],
+  [/(?:그레이|\bGR(?:A|E)Y\b)/i, 'gray'],
+  [/(?:베이지|\bBEIGE\b)/i, 'beige'],
+];
 
 function generationNearModel(text: string, model?: string): string | undefined {
   if (!model) return undefined;
@@ -19,18 +27,16 @@ function generationNearModel(text: string, model?: string): string | undefined {
   return window.match(GENERATION_RE)?.[1]?.toUpperCase();
 }
 
-function uniqueColor(text: string): string | undefined {
+function colorValues(text: string): Set<string> {
   const matches = new Set<string>();
-  const colors: Array<[RegExp, string]> = [
-    [/(?:화이트|\bWHITE\b)/i, 'white'],
-    [/(?:블랙|\bBLACK\b)/i, 'black'],
-    [/(?:실버|\bSILVER\b)/i, 'silver'],
-    [/(?:그레이|\bGR(?:A|E)Y\b)/i, 'gray'],
-    [/(?:베이지|\bBEIGE\b)/i, 'beige'],
-  ];
-  for (const [pattern, normalized] of colors) {
+  for (const [pattern, normalized] of COLOR_PATTERNS) {
     if (pattern.test(text)) matches.add(normalized);
   }
+  return matches;
+}
+
+function uniqueColor(text: string): string | undefined {
+  const matches = colorValues(text);
   return matches.size === 1 ? [...matches][0] : undefined;
 }
 
@@ -38,21 +44,61 @@ function monitorLike(text: string): boolean {
   return /(모니터|\b(?:FHD|QHD|WQHD|UHD|IPS|VA|OLED)\b|\d{2,3}\s*HZ\b)/i.test(text);
 }
 
+function pixelPolicySignals(text: string): { standard: boolean; zeroDefect: boolean } {
+  return {
+    zeroDefect: /무결점|ZERO[- ]?DEFECT|PIXEL[- ]?PERFECT/i.test(text),
+    standard: /(?:^|[\s/()[\],·-])일반(?:$|[\s/()[\],·-])/i.test(text),
+  };
+}
+
 function pixelPolicy(text: string): PixelPolicy | undefined {
   if (!monitorLike(text)) return undefined;
-  const zeroDefect = /무결점|ZERO[- ]?DEFECT|PIXEL[- ]?PERFECT/i.test(text);
-  const standard = /(?:^|[\s/()[\],·-])일반(?:$|[\s/()[\],·-])/i.test(text);
+  const { standard, zeroDefect } = pixelPolicySignals(text);
   if (zeroDefect === standard) return undefined;
   return zeroDefect ? 'zero_defect' : 'standard';
 }
 
-function refreshRateHz(text: string): number | undefined {
+function refreshRateValues(text: string): Set<number> {
   const values = new Set<number>();
   for (const match of text.matchAll(REFRESH_RATE_RE)) {
     const value = Number(match[1]);
     if (Number.isFinite(value) && value >= 30 && value <= 1000) values.add(value);
   }
+  return values;
+}
+
+function refreshRateHz(text: string): number | undefined {
+  const values = refreshRateValues(text);
   return values.size === 1 ? [...values][0] : undefined;
+}
+
+export function materialVariantConflicts(text: string): string[] {
+  const conflicts: string[] = [];
+  const refreshRates = refreshRateValues(text);
+  if (refreshRates.size > 1) {
+    conflicts.push(`refresh_rate:${[...refreshRates].sort((a, b) => a - b).join('|')}`);
+  }
+
+  const colors = colorValues(text);
+  if (colors.size > 1) {
+    conflicts.push(`color:${[...colors].sort().join('|')}`);
+  }
+
+  if (monitorLike(text)) {
+    const policy = pixelPolicySignals(text);
+    if (policy.standard && policy.zeroDefect) conflicts.push('pixel_policy:standard|zero_defect');
+  }
+
+  const generations = new Set(
+    [...text.matchAll(GENERATION_ALL_RE)]
+      .map((match) => match[1]?.toUpperCase())
+      .filter((value): value is string => Boolean(value)),
+  );
+  if (generations.size > 1) {
+    conflicts.push(`generation:${[...generations].sort().join('|')}`);
+  }
+
+  return conflicts;
 }
 
 export function extractMaterialVariant(text: string, model?: string): MaterialVariantFields {
