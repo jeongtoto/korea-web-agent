@@ -1,3 +1,4 @@
+import { materialVariantConflicts } from '../core/material-variant.ts';
 import type {
   CanonicalProductIdentity,
   MarketOffer,
@@ -7,6 +8,7 @@ import { isComparisonPortalHost } from '../providers/comparison-links.ts';
 import type { DirectPageResult } from '../providers/direct-page.ts';
 import {
   directPageIdentityMatch,
+  directPageIdentityText,
   verifiedSellerOfferFromPage,
 } from '../providers/seller-expansion.ts';
 
@@ -31,6 +33,9 @@ export function verifyDirectSellerCandidate(
 
   const availability = input.page.facts?.availability ?? input.page.product?.offers?.availability;
   if (!availability) return null;
+
+  const broadText = directPageIdentityText(input.page);
+  if (materialVariantConflicts(broadText).length > 0) return null;
 
   const broadIdentity = directPageIdentityMatch(input.canonicalIdentity, input.page);
   if (broadIdentity.verdict !== 'exact') return null;
