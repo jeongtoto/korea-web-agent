@@ -67,7 +67,7 @@ function benefitSignal(offer: MarketOffer): string[] {
     if (/(카드|쿠폰|멤버|회원|적립|페이|pay|포인트|할인)/i.test(condition)) signals.push(condition);
   }
   if (offer.membershipPrice !== undefined) signals.push('회원/멤버십 가격 혜택');
-  if (offer.rewardPoints !== undefined || offer.effectivePrice !== undefined) signals.push('적립/포인트 혜택');
+  if (offer.points !== undefined || offer.effectivePrice !== undefined) signals.push('적립/포인트 혜택');
   return [...new Set(signals.map((item) => item.trim()).filter(Boolean))];
 }
 
@@ -78,7 +78,7 @@ function benefitLines(report: ProductReport): string[] {
     || offer.paymentMethod
     || offer.paymentPrice !== undefined
     || offer.membershipPrice !== undefined
-    || offer.rewardPoints !== undefined
+    || offer.points !== undefined
     || offer.effectivePrice !== undefined
     || (offer.conditions ?? []).some((condition) => /(카드|쿠폰|멤버|회원|적립|페이|pay|포인트|할인)/i.test(condition)));
 
