@@ -10,5 +10,9 @@ test('Netlify background worker injects Shopping Intelligence with cached public
   assert.match(source, /shoppingResearch\s*:/);
   assert.match(source, /exactPriceCache/);
   assert.match(source, /includeLocalRelay:\s*false/);
+  assert.match(source, /verifyDirectSellerCandidate/);
+  assert.match(source, /isDecisiveCashOffer/);
+  assert.match(source, /scope\s*===\s*['"]targeted['"]/);
+  assert.match(source, /!offers\.some\(isDecisiveCashOffer\)/);
   assert.doesNotMatch(source, /shoppingResearch[\s\S]{0,300}relaySecret/);
 });
