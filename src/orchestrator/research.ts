@@ -527,8 +527,7 @@ export async function runResearch(
     });
     const deduplicatedOffers = deduplicateSellerOffers([...evidenceOffers, ...pipelineOffers])
       .sort((a, b) => Number(b.eligible) - Number(a.eligible)
-        || Math.min(a.cardPrice ?? Infinity, a.paymentPrice ?? Infinity, a.totalCashPrice ?? Infinity, a.effectivePrice ?? Infinity)
-          - Math.min(b.cardPrice ?? Infinity, b.paymentPrice ?? Infinity, b.totalCashPrice ?? Infinity, b.effectivePrice ?? Infinity)
+        || (a.totalCashPrice ?? Infinity) - (b.totalCashPrice ?? Infinity)
         || b.identityScore - a.identityScore);
     const marketCounts = new Map<string, number>();
     const offers = deduplicatedOffers.filter((offer) => {
