@@ -5,10 +5,12 @@ import {
   finishAgentResearchJob,
   releaseAgentResearchInput,
 } from '../../dist/src/cloud/job-state.js';
+import { isDecisiveCashOffer } from '../../dist/src/core/offer-engine.js';
 import { runResearch, createDefaultResearchDependencies } from '../../dist/src/orchestrator/research.js';
 import { runCloudResearch } from '../../dist/src/cloud/research-service.js';
 import { fetchDirectPage } from '../../dist/src/providers/direct-page.js';
 import { searchDuckDuckGo } from '../../dist/src/providers/duckduckgo.js';
+import { verifyDirectSellerCandidate } from '../../dist/src/shopping/direct-seller-verifier.js';
 import { runShoppingResearch } from '../../dist/src/shopping/shopping-orchestrator.js';
 import { actionAuthConfigured, actionAuthorized } from './_lib/auth.mjs';
 import { getKoreaWebAgentStore } from './_lib/store.mjs';
@@ -63,6 +65,7 @@ export default async (request) => {
         personalizationAvailable: false,
         priceVerifier: async (assessment, scope) => {
           const candidate = assessment.candidate;
+          const target = exactTargetFor(candidate);
           let exact = exactPriceCache.get(candidate.key);
           if (!exact) {
             const exactRequest = {
@@ -72,7 +75,6 @@ export default async (request) => {
             };
             if (purchaseContext) exactRequest.purchaseContext = purchaseContext;
             if (candidate.sourceUrls?.[0]) exactRequest.url = candidate.sourceUrls[0];
-            const target = exactTargetFor(candidate);
             exact = runResearch(
               exactRequest,
               createDefaultResearchDependencies({
@@ -88,11 +90,36 @@ export default async (request) => {
             exactPriceCache.set(candidate.key, exact);
           }
           const exactJob = await exact;
+          let offers = [...(exactJob.report?.offers ?? [])];
+          const errors = [...(exactJob.errors ?? [])];
+          const sourceUrl = candidate.sourceUrls?.[0];
+          const canonicalIdentity = exactJob.researchContext?.canonicalIdentity;
+
+          if (scope === 'targeted'
+            && !offers.some(isDecisiveCashOffer)
+            && sourceUrl
+            && canonicalIdentity) {
+            try {
+              const page = await fetchDirectPage(sourceUrl);
+              const directOffer = verifyDirectSellerCandidate({
+                page,
+                target,
+                canonicalIdentity,
+                retrievedAt: new Date().toISOString(),
+              });
+              if (directOffer) {
+                offers = [directOffer, ...offers.filter((offer) => offer.url !== directOffer.url)];
+              }
+            } catch (error) {
+              errors.push(`direct_seller:${error instanceof Error ? error.message : String(error)}`);
+            }
+          }
+
           return {
             candidateKey: candidate.key,
             scope,
-            offers: exactJob.report?.offers ?? [],
-            errors: exactJob.errors ?? [],
+            offers,
+            errors,
           };
         },
       }),
